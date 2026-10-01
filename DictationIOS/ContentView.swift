@@ -1886,6 +1886,7 @@ private struct ReviewRow: View {
 private struct SettingsSheet: View {
     @ObservedObject var model: DictationModel
     @ObservedObject var localization: AppLocalization
+    @AppStorage(AppAppearance.storageKey) private var appearance: AppAppearance = .system
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1896,6 +1897,11 @@ private struct SettingsSheet: View {
                         Text(localization.string("System")).tag("system")
                         ForEach(AppLocalization.choices, id: \.id) { choice in
                             Text(choice.title).tag(choice.id)
+                        }
+                    }
+                    Picker(localization.string("Theme"), selection: $appearance) {
+                        ForEach(AppAppearance.allCases) { option in
+                            Text(localization.string(LocalizableText(key: option.title))).tag(option)
                         }
                     }
                 }

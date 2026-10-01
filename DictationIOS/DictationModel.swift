@@ -1937,7 +1937,7 @@ final class DictationModel: ObservableObject {
             case .supported:
                 self.startTranslationSession(source: source, target: target, requestID: requestID)
             case .unsupported:
-                self.translationStatus = .format("Local translation unavailable: %@", "this language pair isn't supported")
+                self.translationStatus = "Local translation unavailable: this language pair isn't supported."
                 self.savePracticeSession()
             @unknown default:
                 self.startTranslationSession(source: source, target: target, requestID: requestID)
