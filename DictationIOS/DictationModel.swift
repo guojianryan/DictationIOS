@@ -1584,6 +1584,11 @@ final class DictationModel: ObservableObject {
         schedulePracticeSessionSave()
     }
 
+    func pausePlayback() {
+        guard isPlaying else { return }
+        stopPlayback()
+    }
+
     private func stopPlayback() {
         player?.pause()
         isPlaying = false
@@ -2415,7 +2420,7 @@ final class DictationModel: ObservableObject {
         return String(folded.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
     }
 
-    private static func alignWords(
+    static func alignWords(
         _ typed: [String],
         _ expected: [String]
     ) -> (typedMatches: [Bool], typedExpectedIndices: [Int?], missingExpectedIndices: [Int]) {

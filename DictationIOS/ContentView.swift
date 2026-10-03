@@ -31,6 +31,7 @@ private enum AudioSetupTab: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @StateObject private var model = DictationModel()
     @StateObject private var localization = AppLocalization()
+    @StateObject private var speaking = SpeakingPracticeModel()
     @Environment(\.colorScheme) private var colorScheme
     @State private var setupChoice: SetupChoice?
     @State private var textTab: TextSetupTab = .type
@@ -224,7 +225,7 @@ struct ContentView: View {
                 .shadow(color: studentPurple.opacity(0.22), radius: 6, y: 3)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(tr("Language Dictation"))
+                Text(verbatim: "EchoLingo")
                     .font(.headline.weight(.bold))
                     .foregroundStyle(ink)
                 Text(tr("Listen \u{2022} learn \u{2022} level up"))
@@ -238,11 +239,12 @@ struct ContentView: View {
                 Button {
                     returnToSetup()
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "arrow.counterclockwise")
                         .font(.body.weight(.semibold))
                         .frame(width: 32, height: 32)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderless)
+                .accessibilityLabel(tr("Start over"))
             }
 
             Button {
@@ -809,6 +811,11 @@ struct ContentView: View {
                                 }
                             }
                             .onChange(of: model.gradeCheckCount) { _, _ in flashGradePopup() }
+
+                        if model.practiceGradeScore == 100 {
+                            speakingCard
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
                     }
 
                     playbackControls
@@ -1162,11 +1169,151 @@ struct ContentView: View {
     }
 
     private var gradeColor: Color {
-        switch model.practiceGradeScore ?? 0 {
+        scoreColor(model.practiceGradeScore ?? 0)
+    }
+
+    private func scoreColor(_ score: Int) -> Color {
+        switch score {
         case 100: studentMint
         case 85...: studentBlue
         case 65..<85: studentPurple
         default: Color(red: 0.72, green: 0.36, blue: 0.12)
+        }
+    }
+
+    // MARK: - Speaking Practice
+
+    private var speakingCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Label(tr("Say it out loud"), systemImage: "waveform.and.mic")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(studentBlue)
+                Text(tr("Record yourself reading the sentence. Try as many times as you like."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 12) {
+                Button {
+                    guard let sentence = model.currentSentence else { return }
+                    model.pausePlayback()
+                    isAnswerFieldFocused = false
+                    speaking.toggleRecording(expectedText: sentence.text, localeIdentifier: model.selectedSpeechLocale)
+                } label: {
+                    Image(systemName: speaking.isRecording ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 56)
+                        .background(speaking.isRecording ? Color.red : studentBlue, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(speaking.isRecording ? tr("Stop") : tr("Record"))
+
+                if speaking.hasRecording && !speaking.isRecording {
+                    Button {
+                        model.pausePlayback()
+                        speaking.togglePlayback()
+                    } label: {
+                        Image(systemName: speaking.isPlaying ? "stop.fill" : "play.fill")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(studentBlue)
+                            .frame(width: 56, height: 56)
+                            .background(studentBlue.opacity(0.12), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(speaking.isPlaying ? tr("Stop") : tr("Play my recording"))
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(speaking.isRecording
+                         ? tr("Listening\u{2026}")
+                         : (speaking.attemptCount > 0 ? tr("Record again") : tr("Tap to record")))
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(speaking.isRecording ? .red : ink)
+                    if speaking.attemptCount > 0 && !speaking.isRecording {
+                        Text(tr("Attempts: %@", String(speaking.attemptCount)))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                if let score = speaking.score, !speaking.isRecording {
+                    VStack(spacing: 0) {
+                        Text("\(score)%")
+                            .font(.title3.weight(.heavy).monospacedDigit())
+                        Text(tr(speakingRatingTitle(score)))
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .foregroundStyle(scoreColor(score))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(scoreColor(score).opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+
+            if speaking.isRecording || speaking.score != nil {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(tr("Recognized"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(speaking.recognizedText.isEmpty
+                         ? (speaking.isRecording ? tr("Start speaking\u{2026}") : tr("Nothing was recognized. Try again."))
+                         : speaking.recognizedText)
+                        .font(.callout)
+                        .foregroundStyle(speaking.recognizedText.isEmpty ? .secondary : ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(canvasFill, in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            if !speaking.wordResults.isEmpty && !speaking.isRecording {
+                Text(spokenDiff)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    Label(tr("Heard"), systemImage: "checkmark").foregroundStyle(.green)
+                    Label(tr("Not heard"), systemImage: "xmark").foregroundStyle(.red)
+                }
+                .font(.caption)
+            }
+
+            if let message = speaking.errorMessage {
+                Text(localized(message))
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
+        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder((speaking.isRecording ? Color.red : studentBlue).opacity(0.2)) }
+        .onDisappear { speaking.reset() }
+    }
+
+    private var spokenDiff: AttributedString {
+        var result = AttributedString()
+        for word in speaking.wordResults {
+            if !result.characters.isEmpty { result.append(AttributedString(" ")) }
+            var spokenWord = AttributedString(word.text)
+            spokenWord.foregroundColor = word.isRecognized ? .green : .red
+            result.append(spokenWord)
+        }
+        return result
+    }
+
+    private func speakingRatingTitle(_ score: Int) -> String {
+        switch score {
+        case 100: "Perfect!"
+        case 85...: "Almost there!"
+        case 65..<85: "Great effort!"
+        default: "Keep going!"
         }
     }
 

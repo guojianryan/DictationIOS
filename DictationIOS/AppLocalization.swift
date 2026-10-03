@@ -102,7 +102,6 @@ enum LocalizationTable {
     ]
 
     private static let german: [String: String] = [
-        "Language Dictation": "Sprachdiktat",
         "Listen \u{2022} learn \u{2022} level up": "Hören \u{2022} lernen \u{2022} besser werden",
         "Start over": "Neu beginnen",
         "Theme": "Darstellung",
@@ -306,11 +305,24 @@ enum LocalizationTable {
         "Apple's speech model for %@ is not yet downloaded. To install it, go to Settings > General > Dictation, enable Dictation, and add it as a dictation language. Then return here and try again.": "Apples Sprachmodell für %@ ist noch nicht geladen. Um es zu installieren, öffne Einstellungen > Allgemein > Diktat, aktiviere das Diktat und füge die Sprache als Diktiersprache hinzu. Kehre dann hierher zurück und versuche es erneut.",
         "Original": "Original",
         "Revert": "Zurücksetzen",
-        "Merge": "Verbinden"
+        "Merge": "Verbinden",
+        "Say it out loud": "Laut aussprechen",
+        "Record yourself reading the sentence. Try as many times as you like.": "Nimm dich auf, während du den Satz vorliest. Versuche es so oft du willst.",
+        "Stop": "Stopp",
+        "Listening\u{2026}": "Hört zu\u{2026}",
+        "Tap to record": "Zum Aufnehmen tippen",
+        "Attempts: %@": "Versuche: %@",
+        "Recognized": "Erkannt",
+        "Start speaking\u{2026}": "Sprich jetzt\u{2026}",
+        "Nothing was recognized. Try again.": "Nichts erkannt. Versuche es erneut.",
+        "Heard": "Erkannt",
+        "Not heard": "Nicht erkannt",
+        "Play my recording": "Meine Aufnahme abspielen",
+        "Speech recognition permission was denied. Allow it in Settings, then try again.": "Die Spracherkennung wurde nicht erlaubt. Erlaube sie in den Einstellungen und versuche es erneut.",
+        "Speech recognition is not available for this language right now.": "Die Spracherkennung ist für diese Sprache gerade nicht verfügbar."
     ]
 
     private static let spanish: [String: String] = [
-        "Language Dictation": "Dictado de idiomas",
         "Listen \u{2022} learn \u{2022} level up": "Escucha \u{2022} aprende \u{2022} mejora",
         "Start over": "Empezar de nuevo",
         "Theme": "Aspecto",
@@ -514,11 +526,24 @@ enum LocalizationTable {
         "Apple's speech model for %@ is not yet downloaded. To install it, go to Settings > General > Dictation, enable Dictation, and add it as a dictation language. Then return here and try again.": "El modelo de voz de Apple para %@ aún no se ha descargado. Para instalarlo, ve a Ajustes > General > Dictado, activa el dictado y añádelo como idioma de dictado. Después vuelve aquí e inténtalo de nuevo.",
         "Original": "Original",
         "Revert": "Revertir",
-        "Merge": "Unir"
+        "Merge": "Unir",
+        "Say it out loud": "Dilo en voz alta",
+        "Record yourself reading the sentence. Try as many times as you like.": "Grábate leyendo la frase. Inténtalo tantas veces como quieras.",
+        "Stop": "Detener",
+        "Listening\u{2026}": "Escuchando\u{2026}",
+        "Tap to record": "Toca para grabar",
+        "Attempts: %@": "Intentos: %@",
+        "Recognized": "Reconocido",
+        "Start speaking\u{2026}": "Empieza a hablar\u{2026}",
+        "Nothing was recognized. Try again.": "No se reconoció nada. Inténtalo de nuevo.",
+        "Heard": "Oído",
+        "Not heard": "No oído",
+        "Play my recording": "Reproducir mi grabación",
+        "Speech recognition permission was denied. Allow it in Settings, then try again.": "Se denegó el reconocimiento de voz. Permítelo en Ajustes e inténtalo de nuevo.",
+        "Speech recognition is not available for this language right now.": "El reconocimiento de voz no está disponible para este idioma ahora mismo."
     ]
 
     private static let french: [String: String] = [
-        "Language Dictation": "Dictée de langues",
         "Listen \u{2022} learn \u{2022} level up": "Écoute \u{2022} apprends \u{2022} progresse",
         "Start over": "Recommencer",
         "Theme": "Apparence",
@@ -722,11 +747,24 @@ enum LocalizationTable {
         "Apple's speech model for %@ is not yet downloaded. To install it, go to Settings > General > Dictation, enable Dictation, and add it as a dictation language. Then return here and try again.": "Le modèle vocal d\u{2019}Apple pour %@ n\u{2019}est pas encore téléchargé. Pour l\u{2019}installer, va dans Réglages > Général > Dictée, active la dictée et ajoute-le comme langue de dictée. Reviens ensuite ici et réessaie.",
         "Original": "Original",
         "Revert": "Rétablir",
-        "Merge": "Fusionner"
+        "Merge": "Fusionner",
+        "Say it out loud": "Dis-le à voix haute",
+        "Record yourself reading the sentence. Try as many times as you like.": "Enregistre-toi en lisant la phrase. Réessaie autant de fois que tu veux.",
+        "Stop": "Arrêter",
+        "Listening\u{2026}": "Écoute\u{2026}",
+        "Tap to record": "Touche pour enregistrer",
+        "Attempts: %@": "Essais : %@",
+        "Recognized": "Reconnu",
+        "Start speaking\u{2026}": "Commence à parler\u{2026}",
+        "Nothing was recognized. Try again.": "Rien n\u{2019}a été reconnu. Réessaie.",
+        "Heard": "Entendu",
+        "Not heard": "Non entendu",
+        "Play my recording": "Écouter mon enregistrement",
+        "Speech recognition permission was denied. Allow it in Settings, then try again.": "La reconnaissance vocale a été refusée. Autorise-la dans Réglages, puis réessaie.",
+        "Speech recognition is not available for this language right now.": "La reconnaissance vocale n\u{2019}est pas disponible pour cette langue pour le moment."
     ]
 
     private static let italian: [String: String] = [
-        "Language Dictation": "Dettato linguistico",
         "Listen \u{2022} learn \u{2022} level up": "Ascolta \u{2022} impara \u{2022} migliora",
         "Start over": "Ricomincia",
         "Theme": "Aspetto",
@@ -930,11 +968,24 @@ enum LocalizationTable {
         "Apple's speech model for %@ is not yet downloaded. To install it, go to Settings > General > Dictation, enable Dictation, and add it as a dictation language. Then return here and try again.": "Il modello vocale di Apple per %@ non è ancora stato scaricato. Per installarlo, vai in Impostazioni > Generali > Dettatura, attiva la dettatura e aggiungilo come lingua di dettatura. Poi torna qui e riprova.",
         "Original": "Originale",
         "Revert": "Ripristina",
-        "Merge": "Unisci"
+        "Merge": "Unisci",
+        "Say it out loud": "Dillo ad alta voce",
+        "Record yourself reading the sentence. Try as many times as you like.": "Registrati mentre leggi la frase. Riprova tutte le volte che vuoi.",
+        "Stop": "Ferma",
+        "Listening\u{2026}": "In ascolto\u{2026}",
+        "Tap to record": "Tocca per registrare",
+        "Attempts: %@": "Tentativi: %@",
+        "Recognized": "Riconosciuto",
+        "Start speaking\u{2026}": "Inizia a parlare\u{2026}",
+        "Nothing was recognized. Try again.": "Non è stato riconosciuto nulla. Riprova.",
+        "Heard": "Sentita",
+        "Not heard": "Non sentita",
+        "Play my recording": "Riproduci la mia registrazione",
+        "Speech recognition permission was denied. Allow it in Settings, then try again.": "Il riconoscimento vocale è stato negato. Consentilo in Impostazioni, poi riprova.",
+        "Speech recognition is not available for this language right now.": "Il riconoscimento vocale non è disponibile per questa lingua al momento."
     ]
 
     private static let japanese: [String: String] = [
-        "Language Dictation": "言語ディクテーション",
         "Listen \u{2022} learn \u{2022} level up": "聞く \u{2022} 学ぶ \u{2022} 上達する",
         "Start over": "最初から",
         "Theme": "外観",
@@ -1138,11 +1189,24 @@ enum LocalizationTable {
         "Apple's speech model for %@ is not yet downloaded. To install it, go to Settings > General > Dictation, enable Dictation, and add it as a dictation language. Then return here and try again.": "%@ 用のApple音声モデルはまだダウンロードされていません。設定 > 一般 > 音声入力で音声入力をオンにし、音声入力の言語として追加してください。その後、ここに戻ってもう一度お試しください。",
         "Original": "原文",
         "Revert": "元に戻す",
-        "Merge": "結合"
+        "Merge": "結合",
+        "Say it out loud": "声に出して言おう",
+        "Record yourself reading the sentence. Try as many times as you like.": "文を読み上げて録音しましょう。何度でも挑戦できます。",
+        "Stop": "停止",
+        "Listening\u{2026}": "聞き取り中\u{2026}",
+        "Tap to record": "タップして録音",
+        "Attempts: %@": "挑戦回数: %@",
+        "Recognized": "認識結果",
+        "Start speaking\u{2026}": "話し始めてください\u{2026}",
+        "Nothing was recognized. Try again.": "何も認識されませんでした。もう一度お試しください。",
+        "Heard": "認識",
+        "Not heard": "未認識",
+        "Play my recording": "自分の録音を再生",
+        "Speech recognition permission was denied. Allow it in Settings, then try again.": "音声認識が許可されていません。設定で許可してから、もう一度お試しください。",
+        "Speech recognition is not available for this language right now.": "この言語の音声認識は現在利用できません。"
     ]
 
     private static let chinese: [String: String] = [
-        "Language Dictation": "语言听写",
         "Listen \u{2022} learn \u{2022} level up": "听 \u{2022} 学 \u{2022} 进步",
         "Start over": "重新开始",
         "Theme": "外观",
@@ -1346,7 +1410,21 @@ enum LocalizationTable {
         "Apple's speech model for %@ is not yet downloaded. To install it, go to Settings > General > Dictation, enable Dictation, and add it as a dictation language. Then return here and try again.": "Apple 的 %@ 语音模型尚未下载。要安装它，请前往\u{201C}设置\u{201D}>\u{201C}通用\u{201D}>\u{201C}听写\u{201D}，启用听写并将其添加为听写语言。然后返回此处重试。",
         "Original": "原文",
         "Revert": "还原",
-        "Merge": "合并"
+        "Merge": "合并",
+        "Say it out loud": "大声说出来",
+        "Record yourself reading the sentence. Try as many times as you like.": "录下你朗读这句话的声音。想试几次都可以。",
+        "Stop": "停止",
+        "Listening\u{2026}": "正在聆听\u{2026}",
+        "Tap to record": "点按录音",
+        "Attempts: %@": "尝试次数：%@",
+        "Recognized": "识别结果",
+        "Start speaking\u{2026}": "请开始说话\u{2026}",
+        "Nothing was recognized. Try again.": "未识别到任何内容，请再试一次。",
+        "Heard": "已识别",
+        "Not heard": "未识别",
+        "Play my recording": "播放我的录音",
+        "Speech recognition permission was denied. Allow it in Settings, then try again.": "语音识别权限被拒绝。请在设置中允许后重试。",
+        "Speech recognition is not available for this language right now.": "此语言的语音识别目前不可用。"
     ]
 }
 
