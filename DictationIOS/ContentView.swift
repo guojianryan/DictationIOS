@@ -341,7 +341,7 @@ struct ContentView: View {
                     uploadCard(
                         systemImage: "doc.text",
                         title: tr("Upload a text file"),
-                        message: tr("The text is read aloud, and the spoken audio is saved in the app."),
+                        message: tr("The text is read aloud, and the spoken audio is saved in your folder."),
                         buttonTitle: tr("Choose Text"),
                         tint: studentMint
                     ) { showsTextImporter = true }
@@ -420,7 +420,7 @@ struct ContentView: View {
             .background(canvasFill, in: RoundedRectangle(cornerRadius: 12))
             .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(studentMint.opacity(0.2)) }
 
-            Text(tr("Speech is generated on your device and saved in the app."))
+            Text(tr("Speech is generated on your device and saved in your folder."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1466,8 +1466,7 @@ struct ContentView: View {
     private func saveTypedTextAndCreateSpeech() {
         let text = typedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        let name = suggestedFilename(for: text)
-        model.importTypedText(text, suggestedName: name)
+        model.importTypedText(text, suggestedName: suggestedFilename(for: text))
     }
 
     private static var cameraIsAvailable: Bool {
@@ -1548,26 +1547,25 @@ struct ContentView: View {
     private func savePhotoTextAndCreateSpeech() {
         let text = photoRecognizedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        let name = suggestedFilename(for: text)
-        model.importTypedText(text, suggestedName: name)
+        model.importTypedText(text, suggestedName: suggestedFilename(for: text))
     }
 
     private func saveRecordingAndStartDictation() {
         guard let tempURL = model.prepareRecordingForSave() else { return }
+        let recordingsDir = StorageFolder.shared.subfolder("recordings")
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH-mm"
-        let recordingsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("recordings")
         do {
             try FileManager.default.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
             let dest = recordingsDir
                 .appendingPathComponent("Recording \(formatter.string(from: Date()))")
                 .appendingPathExtension("wav")
+            // The recording is in the temporary folder, which may be on a different volume
+            // than the chosen folder, so it is moved (copied) rather than swapped in place.
             if FileManager.default.fileExists(atPath: dest.path) {
-                _ = try FileManager.default.replaceItemAt(dest, withItemAt: tempURL)
-            } else {
-                try FileManager.default.moveItem(at: tempURL, to: dest)
+                try FileManager.default.removeItem(at: dest)
             }
+            try FileManager.default.moveItem(at: tempURL, to: dest)
             model.clearSavedRecording()
             model.importAudio(.success([dest]))
         } catch {
@@ -2033,8 +2031,11 @@ private struct ReviewRow: View {
 private struct SettingsSheet: View {
     @ObservedObject var model: DictationModel
     @ObservedObject var localization: AppLocalization
+    @ObservedObject private var storageFolder = StorageFolder.shared
     @AppStorage(AppAppearance.storageKey) private var appearance: AppAppearance = .system
     @Environment(\.dismiss) private var dismiss
+    @State private var showsFolderPicker = false
+    @State private var folderErrorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -2078,6 +2079,41 @@ private struct SettingsSheet: View {
                         "The voice used to read %@. Change the spoken language above to choose a voice for a different language.",
                         localization.languageName(for: model.defaultSpeechLocale)
                     )))
+                }
+                Section {
+                    LabeledContent(localization.string("Folder")) {
+                        Text(storageFolder.displayName ?? localization.string("Documents (default)"))
+                    }
+                    Button(localization.string("Choose Folder")) {
+                        showsFolderPicker = true
+                    }
+                    if storageFolder.chosenURL != nil {
+                        Button(localization.string("Use Documents Folder")) {
+                            storageFolder.useDocumentsFolder()
+                            folderErrorMessage = nil
+                        }
+                    }
+                } header: {
+                    Text(localization.string("Saved files"))
+                } footer: {
+                    if let folderErrorMessage {
+                        Text(folderErrorMessage).foregroundStyle(.red)
+                    } else {
+                        Text(localization.string("Speech, recordings, and practice progress are saved in this folder. Choose a folder in iCloud Drive to use the same files in the Mac app."))
+                    }
+                }
+            }
+            .fileImporter(
+                isPresented: $showsFolderPicker,
+                allowedContentTypes: [.folder],
+                allowsMultipleSelection: false
+            ) { result in
+                do {
+                    guard let url = try result.get().first else { return }
+                    try storageFolder.choose(url)
+                    folderErrorMessage = nil
+                } catch {
+                    folderErrorMessage = localization.string(.format("Could not use this folder: %@", error.localizedDescription))
                 }
             }
             .navigationTitle(localization.string("Settings"))

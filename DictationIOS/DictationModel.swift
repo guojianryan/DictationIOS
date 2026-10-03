@@ -460,7 +460,7 @@ final class DictationModel: ObservableObject {
                 scopedAudioURL = url
             }
 
-            if FileManager.default.fileExists(atPath: savedSessionURL(for: url).path) {
+            if hasSavedSession(for: url) {
                 isSavedSessionPromptPresented = true
             } else {
                 transcribePendingAudio()
@@ -482,18 +482,18 @@ final class DictationModel: ObservableObject {
 
     func importTextFile(at url: URL) {
         resetPlayerAndAudioAccess()
+        let audioURL = Self.speechAudioURL(for: url)
         errorMessage = nil
         pendingImportKind = .text
         pendingTextURL = url
-        pendingAudioURL = Self.speechAudioURL(for: url)
+        pendingAudioURL = audioURL
         pendingAudioName = url.lastPathComponent
         let hasScopedAccess = url.startAccessingSecurityScopedResource()
         if hasScopedAccess {
             scopedAudioURL = url
         }
 
-        if let audioURL = pendingAudioURL,
-           FileManager.default.fileExists(atPath: savedSessionURL(for: audioURL).path) {
+        if hasSavedSession(for: audioURL) {
             isSavedSessionPromptPresented = true
         } else {
             synthesizePendingText()
@@ -511,7 +511,7 @@ final class DictationModel: ObservableObject {
         }
         let textURL = speechDir.appendingPathComponent(suggestedName).appendingPathExtension("txt")
         do {
-            try text.write(to: textURL, atomically: true, encoding: .utf8)
+            try StorageFolder.coordinatedWrite(Data(text.utf8), to: textURL)
         } catch {
             errorMessage = .format("Could not save the text: %@", error.localizedDescription)
             return
@@ -531,7 +531,7 @@ final class DictationModel: ObservableObject {
             scopedAudioURL = url
         }
         do {
-            let data = try Data(contentsOf: savedSessionURL(for: url))
+            let data = try StorageFolder.coordinatedRead(at: savedSessionURL(for: url))
             let saved = try JSONDecoder().decode(SavedPracticeSession.self, from: data)
             guard saved.formatVersion == 1 else {
                 throw DictationError.unsupportedSavedSessionVersion
@@ -791,7 +791,7 @@ final class DictationModel: ObservableObject {
         }
 
         do {
-            let sessionAlreadyExists = FileManager.default.fileExists(atPath: savedSessionURL(for: audioURL).path)
+            let sessionAlreadyExists = hasSavedSession(for: audioURL)
             if FileManager.default.fileExists(atPath: audioURL.path), !sessionAlreadyExists {
                 throw DictationError.speechFileAlreadyExists(audioURL.lastPathComponent)
             }
@@ -981,15 +981,8 @@ final class DictationModel: ObservableObject {
             return
         }
 
-        let recordingsDir = Self.recordingsDirectory()
-        do {
-            try FileManager.default.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
-        } catch {
-            errorMessage = .format("Recording could not be started: %@", error.localizedDescription)
-            return
-        }
-
-        let url = recordingsDir
+        // Recorded into the temporary folder; it moves to the chosen folder only when saved.
+        let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("dictation-recording-\(UUID().uuidString)")
             .appendingPathExtension("wav")
 
@@ -1684,27 +1677,22 @@ final class DictationModel: ObservableObject {
         activeAudioURL = nil
     }
 
-    // MARK: - Session Persistence (Documents-based on iOS)
-
-    private static func documentsDirectory() -> URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    }
+    // MARK: - Session Persistence (in the folder chosen in Settings)
 
     private static func speechDirectory() -> URL {
-        documentsDirectory().appendingPathComponent("speech")
-    }
-
-    private static func recordingsDirectory() -> URL {
-        documentsDirectory().appendingPathComponent("recordings")
+        StorageFolder.shared.subfolder("speech")
     }
 
     private func savedSessionURL(for audioURL: URL) -> URL {
         let baseName = audioURL.deletingPathExtension().lastPathComponent
         let folderName = baseName.isEmpty ? audioURL.lastPathComponent : baseName
-        return Self.documentsDirectory()
-            .appendingPathComponent("sessions")
+        return StorageFolder.shared.subfolder("sessions")
             .appendingPathComponent(folderName)
             .appendingPathComponent("practice-session.json")
+    }
+
+    private func hasSavedSession(for audioURL: URL) -> Bool {
+        FileManager.default.fileExists(atPath: savedSessionURL(for: audioURL).path)
     }
 
     private static func speechAudioURL(for textURL: URL) -> URL {
@@ -1763,13 +1751,13 @@ final class DictationModel: ObservableObject {
             reviewCompleted: !isReviewing
         )
 
+        let sessionURL = savedSessionURL(for: activeAudioURL)
         do {
-            let directory = savedSessionURL(for: activeAudioURL).deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: sessionURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(saved)
-            try data.write(to: savedSessionURL(for: activeAudioURL), options: .atomic)
+            try StorageFolder.coordinatedWrite(data, to: sessionURL)
             if errorMessage?.key == "Could not save practice data: %@" {
                 errorMessage = nil
             }

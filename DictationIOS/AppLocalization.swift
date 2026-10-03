@@ -150,7 +150,7 @@ enum LocalizationTable {
         "Upload file": "Datei öffnen",
         "Record": "Aufnehmen",
         "Upload a text file": "Textdatei öffnen",
-        "The text is read aloud, and the spoken audio is saved in the app.": "Der Text wird vorgelesen, und die Audiodatei wird in der App gespeichert.",
+        "The text is read aloud, and the spoken audio is saved in your folder.": "Der Text wird vorgelesen, und die Audiodatei wird in deinem Ordner gespeichert.",
         "Choose Text File": "Textdatei wählen",
         "Choose a text file": "Textdatei auswählen",
         "Upload an audio file": "Audiodatei öffnen",
@@ -296,7 +296,7 @@ enum LocalizationTable {
         "Confirm": "Bestätigen",
         "Choose Text": "Text wählen",
         "Choose Audio": "Audio wählen",
-        "Speech is generated on your device and saved in the app.": "Die Sprache wird auf deinem Gerät erzeugt und in der App gespeichert.",
+        "Speech is generated on your device and saved in your folder.": "Die Sprache wird auf deinem Gerät erzeugt und in deinem Ordner gespeichert.",
         "Could not prepare speech folder: %@": "Der Sprachordner konnte nicht vorbereitet werden: %@",
         "Could not activate audio session: %@": "Die Audiositzung konnte nicht aktiviert werden: %@",
         "The text can't be empty.": "Der Text darf nicht leer sein.",
@@ -319,7 +319,14 @@ enum LocalizationTable {
         "Not heard": "Nicht erkannt",
         "Play my recording": "Meine Aufnahme abspielen",
         "Speech recognition permission was denied. Allow it in Settings, then try again.": "Die Spracherkennung wurde nicht erlaubt. Erlaube sie in den Einstellungen und versuche es erneut.",
-        "Speech recognition is not available for this language right now.": "Die Spracherkennung ist für diese Sprache gerade nicht verfügbar."
+        "Speech recognition is not available for this language right now.": "Die Spracherkennung ist für diese Sprache gerade nicht verfügbar.",
+        "Choose Folder": "Ordner wählen",
+        "Documents (default)": "Dokumente (Standard)",
+        "Use Documents Folder": "Dokumente-Ordner verwenden",
+        "Folder": "Ordner",
+        "Saved files": "Gespeicherte Dateien",
+        "Speech, recordings, and practice progress are saved in this folder. Choose a folder in iCloud Drive to use the same files in the Mac app.": "Sprache, Aufnahmen und Lernfortschritt werden in diesem Ordner gespeichert. Wähle einen Ordner in iCloud Drive, um dieselben Dateien in der Mac-App zu nutzen.",
+        "Could not use this folder: %@": "Dieser Ordner kann nicht verwendet werden: %@"
     ]
 
     private static let spanish: [String: String] = [
@@ -371,7 +378,7 @@ enum LocalizationTable {
         "Upload file": "Abrir archivo",
         "Record": "Grabar",
         "Upload a text file": "Abrir un archivo de texto",
-        "The text is read aloud, and the spoken audio is saved in the app.": "El texto se lee en voz alta y el audio se guarda en la app.",
+        "The text is read aloud, and the spoken audio is saved in your folder.": "El texto se lee en voz alta y el audio se guarda en tu carpeta.",
         "Choose Text File": "Elegir archivo de texto",
         "Choose a text file": "Elegir un archivo de texto",
         "Upload an audio file": "Abrir un archivo de audio",
@@ -517,7 +524,7 @@ enum LocalizationTable {
         "Confirm": "Confirmar",
         "Choose Text": "Elegir texto",
         "Choose Audio": "Elegir audio",
-        "Speech is generated on your device and saved in the app.": "La voz se genera en tu dispositivo y se guarda en la app.",
+        "Speech is generated on your device and saved in your folder.": "La voz se genera en tu dispositivo y se guarda en tu carpeta.",
         "Could not prepare speech folder: %@": "No se pudo preparar la carpeta de voz: %@",
         "Could not activate audio session: %@": "No se pudo activar la sesión de audio: %@",
         "The text can't be empty.": "El texto no puede estar vacío.",
@@ -540,7 +547,14 @@ enum LocalizationTable {
         "Not heard": "No oído",
         "Play my recording": "Reproducir mi grabación",
         "Speech recognition permission was denied. Allow it in Settings, then try again.": "Se denegó el reconocimiento de voz. Permítelo en Ajustes e inténtalo de nuevo.",
-        "Speech recognition is not available for this language right now.": "El reconocimiento de voz no está disponible para este idioma ahora mismo."
+        "Speech recognition is not available for this language right now.": "El reconocimiento de voz no está disponible para este idioma ahora mismo.",
+        "Choose Folder": "Elegir carpeta",
+        "Documents (default)": "Documentos (predeterminado)",
+        "Use Documents Folder": "Usar carpeta Documentos",
+        "Folder": "Carpeta",
+        "Saved files": "Archivos guardados",
+        "Speech, recordings, and practice progress are saved in this folder. Choose a folder in iCloud Drive to use the same files in the Mac app.": "La voz, las grabaciones y el progreso de práctica se guardan en esta carpeta. Elige una carpeta de iCloud Drive para usar los mismos archivos en la app para Mac.",
+        "Could not use this folder: %@": "No se puede usar esta carpeta: %@"
     ]
 
     private static let french: [String: String] = [
@@ -592,7 +606,7 @@ enum LocalizationTable {
         "Upload file": "Ouvrir un fichier",
         "Record": "Enregistrer",
         "Upload a text file": "Ouvrir un fichier texte",
-        "The text is read aloud, and the spoken audio is saved in the app.": "Le texte est lu à voix haute, et l\u{2019}audio est enregistré dans l\u{2019}app.",
+        "The text is read aloud, and the spoken audio is saved in your folder.": "Le texte est lu à voix haute, et l\u{2019}audio est enregistré dans ton dossier.",
         "Choose Text File": "Choisir un fichier texte",
         "Choose a text file": "Choisir un fichier texte",
         "Upload an audio file": "Ouvrir un fichier audio",
@@ -738,7 +752,7 @@ enum LocalizationTable {
         "Confirm": "Confirmer",
         "Choose Text": "Choisir un texte",
         "Choose Audio": "Choisir l\u{2019}audio",
-        "Speech is generated on your device and saved in the app.": "La voix est générée sur ton appareil et enregistrée dans l\u{2019}app.",
+        "Speech is generated on your device and saved in your folder.": "La voix est générée sur ton appareil et enregistrée dans ton dossier.",
         "Could not prepare speech folder: %@": "Impossible de préparer le dossier de la voix : %@",
         "Could not activate audio session: %@": "Impossible d\u{2019}activer la session audio : %@",
         "The text can't be empty.": "Le texte ne peut pas être vide.",
@@ -761,7 +775,14 @@ enum LocalizationTable {
         "Not heard": "Non entendu",
         "Play my recording": "Écouter mon enregistrement",
         "Speech recognition permission was denied. Allow it in Settings, then try again.": "La reconnaissance vocale a été refusée. Autorise-la dans Réglages, puis réessaie.",
-        "Speech recognition is not available for this language right now.": "La reconnaissance vocale n\u{2019}est pas disponible pour cette langue pour le moment."
+        "Speech recognition is not available for this language right now.": "La reconnaissance vocale n\u{2019}est pas disponible pour cette langue pour le moment.",
+        "Choose Folder": "Choisir un dossier",
+        "Documents (default)": "Documents (par défaut)",
+        "Use Documents Folder": "Utiliser le dossier Documents",
+        "Folder": "Dossier",
+        "Saved files": "Fichiers enregistrés",
+        "Speech, recordings, and practice progress are saved in this folder. Choose a folder in iCloud Drive to use the same files in the Mac app.": "La voix, les enregistrements et la progression sont enregistrés dans ce dossier. Choisis un dossier dans iCloud Drive pour utiliser les mêmes fichiers dans l\u{2019}app Mac.",
+        "Could not use this folder: %@": "Impossible d\u{2019}utiliser ce dossier : %@"
     ]
 
     private static let italian: [String: String] = [
@@ -813,7 +834,7 @@ enum LocalizationTable {
         "Upload file": "Apri file",
         "Record": "Registra",
         "Upload a text file": "Apri un file di testo",
-        "The text is read aloud, and the spoken audio is saved in the app.": "Il testo viene letto ad alta voce e l\u{2019}audio viene salvato nell\u{2019}app.",
+        "The text is read aloud, and the spoken audio is saved in your folder.": "Il testo viene letto ad alta voce e l\u{2019}audio viene salvato nella tua cartella.",
         "Choose Text File": "Scegli file di testo",
         "Choose a text file": "Scegli un file di testo",
         "Upload an audio file": "Apri un file audio",
@@ -959,7 +980,7 @@ enum LocalizationTable {
         "Confirm": "Conferma",
         "Choose Text": "Scegli testo",
         "Choose Audio": "Scegli audio",
-        "Speech is generated on your device and saved in the app.": "La voce viene generata sul tuo dispositivo e salvata nell\u{2019}app.",
+        "Speech is generated on your device and saved in your folder.": "La voce viene generata sul tuo dispositivo e salvata nella tua cartella.",
         "Could not prepare speech folder: %@": "Impossibile preparare la cartella della voce: %@",
         "Could not activate audio session: %@": "Impossibile attivare la sessione audio: %@",
         "The text can't be empty.": "Il testo non può essere vuoto.",
@@ -982,7 +1003,14 @@ enum LocalizationTable {
         "Not heard": "Non sentita",
         "Play my recording": "Riproduci la mia registrazione",
         "Speech recognition permission was denied. Allow it in Settings, then try again.": "Il riconoscimento vocale è stato negato. Consentilo in Impostazioni, poi riprova.",
-        "Speech recognition is not available for this language right now.": "Il riconoscimento vocale non è disponibile per questa lingua al momento."
+        "Speech recognition is not available for this language right now.": "Il riconoscimento vocale non è disponibile per questa lingua al momento.",
+        "Choose Folder": "Scegli cartella",
+        "Documents (default)": "Documenti (predefinita)",
+        "Use Documents Folder": "Usa la cartella Documenti",
+        "Folder": "Cartella",
+        "Saved files": "File salvati",
+        "Speech, recordings, and practice progress are saved in this folder. Choose a folder in iCloud Drive to use the same files in the Mac app.": "Voce, registrazioni e progressi vengono salvati in questa cartella. Scegli una cartella in iCloud Drive per usare gli stessi file nell\u{2019}app per Mac.",
+        "Could not use this folder: %@": "Impossibile usare questa cartella: %@"
     ]
 
     private static let japanese: [String: String] = [
@@ -1034,7 +1062,7 @@ enum LocalizationTable {
         "Upload file": "ファイル",
         "Record": "録音",
         "Upload a text file": "テキストファイルを開く",
-        "The text is read aloud, and the spoken audio is saved in the app.": "テキストが読み上げられ、音声はアプリ内に保存されます。",
+        "The text is read aloud, and the spoken audio is saved in your folder.": "テキストが読み上げられ、音声は選択したフォルダに保存されます。",
         "Choose Text File": "テキストファイルを選択",
         "Choose a text file": "テキストファイルを選択",
         "Upload an audio file": "オーディオファイルを開く",
@@ -1180,7 +1208,7 @@ enum LocalizationTable {
         "Confirm": "確定",
         "Choose Text": "テキストを選択",
         "Choose Audio": "音声を選択",
-        "Speech is generated on your device and saved in the app.": "音声はこのデバイス上で生成され、アプリ内に保存されます。",
+        "Speech is generated on your device and saved in your folder.": "音声はこのデバイス上で生成され、選択したフォルダに保存されます。",
         "Could not prepare speech folder: %@": "音声フォルダを準備できませんでした: %@",
         "Could not activate audio session: %@": "オーディオセッションを有効にできませんでした: %@",
         "The text can't be empty.": "テキストを空にすることはできません。",
@@ -1203,7 +1231,14 @@ enum LocalizationTable {
         "Not heard": "未認識",
         "Play my recording": "自分の録音を再生",
         "Speech recognition permission was denied. Allow it in Settings, then try again.": "音声認識が許可されていません。設定で許可してから、もう一度お試しください。",
-        "Speech recognition is not available for this language right now.": "この言語の音声認識は現在利用できません。"
+        "Speech recognition is not available for this language right now.": "この言語の音声認識は現在利用できません。",
+        "Choose Folder": "フォルダを選択",
+        "Documents (default)": "書類（デフォルト）",
+        "Use Documents Folder": "書類フォルダを使用",
+        "Folder": "フォルダ",
+        "Saved files": "保存ファイル",
+        "Speech, recordings, and practice progress are saved in this folder. Choose a folder in iCloud Drive to use the same files in the Mac app.": "音声、録音、練習の進捗はこのフォルダに保存されます。iCloud Drive のフォルダを選ぶと、Mac アプリでも同じファイルを使えます。",
+        "Could not use this folder: %@": "このフォルダは使用できません: %@"
     ]
 
     private static let chinese: [String: String] = [
@@ -1255,7 +1290,7 @@ enum LocalizationTable {
         "Upload file": "打开文件",
         "Record": "录音",
         "Upload a text file": "打开文本文件",
-        "The text is read aloud, and the spoken audio is saved in the app.": "文本会被朗读，生成的音频保存在 App 中。",
+        "The text is read aloud, and the spoken audio is saved in your folder.": "文本会被朗读，生成的音频保存在你选择的文件夹中。",
         "Choose Text File": "选择文本文件",
         "Choose a text file": "选择文本文件",
         "Upload an audio file": "打开音频文件",
@@ -1401,7 +1436,7 @@ enum LocalizationTable {
         "Confirm": "确认",
         "Choose Text": "选择文本",
         "Choose Audio": "选择音频",
-        "Speech is generated on your device and saved in the app.": "语音在你的设备上生成，并保存在 App 中。",
+        "Speech is generated on your device and saved in your folder.": "语音在你的设备上生成，并保存在你选择的文件夹中。",
         "Could not prepare speech folder: %@": "无法准备语音文件夹：%@",
         "Could not activate audio session: %@": "无法激活音频会话：%@",
         "The text can't be empty.": "文本不能为空。",
@@ -1424,7 +1459,14 @@ enum LocalizationTable {
         "Not heard": "未识别",
         "Play my recording": "播放我的录音",
         "Speech recognition permission was denied. Allow it in Settings, then try again.": "语音识别权限被拒绝。请在设置中允许后重试。",
-        "Speech recognition is not available for this language right now.": "此语言的语音识别目前不可用。"
+        "Speech recognition is not available for this language right now.": "此语言的语音识别目前不可用。",
+        "Choose Folder": "选择文件夹",
+        "Documents (default)": "文稿（默认）",
+        "Use Documents Folder": "使用文稿文件夹",
+        "Folder": "文件夹",
+        "Saved files": "已保存的文件",
+        "Speech, recordings, and practice progress are saved in this folder. Choose a folder in iCloud Drive to use the same files in the Mac app.": "语音、录音和练习进度保存在此文件夹中。选择 iCloud Drive 中的文件夹，即可在 Mac App 中使用相同的文件。",
+        "Could not use this folder: %@": "无法使用此文件夹：%@"
     ]
 }
 
