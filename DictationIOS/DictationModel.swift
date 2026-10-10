@@ -54,6 +54,33 @@ enum PendingImportKind {
     case text
 }
 
+/// Where the material of a practice came from.
+enum PracticeSource: String, Codable {
+    case typedText
+    case textFile
+    case photo
+    case audioFile
+    case recording
+}
+
+/// An entry in the list of recent practices. Every practice, whatever its source, already has
+/// one saved practice file (transcript, translation, progress) next to its audio, so an entry
+/// only records where that audio is and what to show in the list.
+struct RecentPractice: Codable, Identifiable, Equatable {
+    /// The name of the practice's folder in `sessions`.
+    let id: String
+    var title: String
+    var source: PracticeSource
+    /// The audio's path inside the EchoLingo folder (generated speech and recordings).
+    var audioRelativePath: String?
+    /// A bookmark for audio the user picked from somewhere else in Files.
+    var audioBookmark: Data?
+    var languageIdentifier: String
+    var sentenceCount: Int
+    var currentSentenceIndex: Int
+    var lastPracticed: Date
+}
+
 private struct SavedPracticeSession: Codable {
     let formatVersion: Int
     let audioFileName: String
@@ -69,11 +96,13 @@ private struct SavedPracticeSession: Codable {
     let sentenceOnly: Bool
     let createdFromText: Bool
     let reviewCompleted: Bool
+    /// Where the practice came from; absent in files saved by earlier versions.
+    let source: PracticeSource?
 
     private enum CodingKeys: String, CodingKey {
         case formatVersion, audioFileName, sourceLanguageIdentifier, sourceLanguageName
         case translationLanguage, sentences, drafts, answerDraft, currentSentenceIndex
-        case currentTime, playbackRate, sentenceOnly, createdFromText, reviewCompleted
+        case currentTime, playbackRate, sentenceOnly, createdFromText, reviewCompleted, source
     }
 
     init(
@@ -90,7 +119,8 @@ private struct SavedPracticeSession: Codable {
         playbackRate: Float,
         sentenceOnly: Bool,
         createdFromText: Bool,
-        reviewCompleted: Bool
+        reviewCompleted: Bool,
+        source: PracticeSource? = nil
     ) {
         self.formatVersion = formatVersion
         self.audioFileName = audioFileName
@@ -106,6 +136,7 @@ private struct SavedPracticeSession: Codable {
         self.sentenceOnly = sentenceOnly
         self.createdFromText = createdFromText
         self.reviewCompleted = reviewCompleted
+        self.source = source
     }
 
     init(from decoder: Decoder) throws {
@@ -124,6 +155,7 @@ private struct SavedPracticeSession: Codable {
         sentenceOnly = try container.decode(Bool.self, forKey: .sentenceOnly)
         createdFromText = try container.decodeIfPresent(Bool.self, forKey: .createdFromText) ?? false
         reviewCompleted = try container.decodeIfPresent(Bool.self, forKey: .reviewCompleted) ?? true
+        source = try container.decodeIfPresent(PracticeSource.self, forKey: .source)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -142,6 +174,7 @@ private struct SavedPracticeSession: Codable {
         try container.encode(sentenceOnly, forKey: .sentenceOnly)
         try container.encode(createdFromText, forKey: .createdFromText)
         try container.encode(reviewCompleted, forKey: .reviewCompleted)
+        try container.encodeIfPresent(source, forKey: .source)
     }
 }
 
@@ -270,6 +303,7 @@ final class DictationModel: ObservableObject {
     @Published private(set) var errorMessage: LocalizableText?
     @Published var isSavedSessionPromptPresented = false
     @Published private(set) var pendingAudioName = ""
+    @Published private(set) var recentPractices: [RecentPractice] = []
     @Published var playbackRate: Float = 1 {
         didSet {
             player?.rate = playbackRate
@@ -321,6 +355,7 @@ final class DictationModel: ObservableObject {
     private var pendingTextURL: URL?
     private var activeAudioURL: URL?
     private var createdFromText = false
+    private var practiceSource = PracticeSource.audioFile
     private var pendingSaveTask: Task<Void, Never>?
     private var fileSpeaker: SentenceFileSpeaker?
     private var audioRecorder: AVAudioRecorder?
@@ -364,7 +399,19 @@ final class DictationModel: ObservableObject {
         selectedSpeechLocale = origin
         selectedTranslationLanguage = translation
         voicePreferences = UserDefaults.standard.dictionary(forKey: Self.voicePreferencesKey) as? [String: String] ?? [:]
+        Self.migrateLegacyRecentPractices(into: StorageFolder.shared.chosenURL)
+        refreshRecentPractices(for: StorageFolder.shared.chosenURL)
+        // Each folder has its own list of recent practices, so switching folders swaps the list.
+        // `$chosenURL` emits before the folder changes, so the new value is passed along.
+        storageFolderObserver = StorageFolder.shared.$chosenURL
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] newURL in
+                self?.refreshRecentPractices(for: newURL)
+            }
     }
+
+    private var storageFolderObserver: AnyCancellable?
 
     private static let originLanguageKey = "originLanguageIdentifier"
     private static let translationLanguageKey = "translationLanguageCode"
@@ -445,12 +492,13 @@ final class DictationModel: ObservableObject {
 
     // MARK: - Import
 
-    func importAudio(_ result: Result<[URL], Error>) {
+    func importAudio(_ result: Result<[URL], Error>, source: PracticeSource = .audioFile) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
             resetPlayerAndAudioAccess()
             errorMessage = nil
+            practiceSource = source
             pendingImportKind = .audio
             pendingTextURL = nil
             pendingAudioURL = url
@@ -480,10 +528,11 @@ final class DictationModel: ObservableObject {
         }
     }
 
-    func importTextFile(at url: URL) {
+    func importTextFile(at url: URL, source: PracticeSource = .textFile) {
         resetPlayerAndAudioAccess()
         let audioURL = Self.speechAudioURL(for: url)
         errorMessage = nil
+        practiceSource = source
         pendingImportKind = .text
         pendingTextURL = url
         pendingAudioURL = audioURL
@@ -501,7 +550,7 @@ final class DictationModel: ObservableObject {
     }
 
     /// Synthesizes speech from typed text already saved to a file.
-    func importTypedText(_ text: String, suggestedName: String) {
+    func importTypedText(_ text: String, suggestedName: String, source: PracticeSource = .typedText) {
         let speechDir = Self.speechDirectory()
         do {
             try FileManager.default.createDirectory(at: speechDir, withIntermediateDirectories: true)
@@ -516,7 +565,7 @@ final class DictationModel: ObservableObject {
             errorMessage = .format("Could not save the text: %@", error.localizedDescription)
             return
         }
-        importTextFile(at: textURL)
+        importTextFile(at: textURL, source: source)
     }
 
     func showError(_ message: LocalizableText) {
@@ -1683,11 +1732,14 @@ final class DictationModel: ObservableObject {
         StorageFolder.shared.subfolder("speech")
     }
 
-    private func savedSessionURL(for audioURL: URL) -> URL {
+    private static func sessionFolderName(for audioURL: URL) -> String {
         let baseName = audioURL.deletingPathExtension().lastPathComponent
-        let folderName = baseName.isEmpty ? audioURL.lastPathComponent : baseName
-        return StorageFolder.shared.subfolder("sessions")
-            .appendingPathComponent(folderName)
+        return baseName.isEmpty ? audioURL.lastPathComponent : baseName
+    }
+
+    private func savedSessionURL(for audioURL: URL) -> URL {
+        StorageFolder.shared.subfolder("sessions")
+            .appendingPathComponent(Self.sessionFolderName(for: audioURL))
             .appendingPathComponent("practice-session.json")
     }
 
@@ -1748,7 +1800,8 @@ final class DictationModel: ObservableObject {
             playbackRate: playbackRate,
             sentenceOnly: sentenceOnly,
             createdFromText: createdFromText,
-            reviewCompleted: !isReviewing
+            reviewCompleted: !isReviewing,
+            source: practiceSource
         )
 
         let sessionURL = savedSessionURL(for: activeAudioURL)
@@ -1761,9 +1814,202 @@ final class DictationModel: ObservableObject {
             if errorMessage?.key == "Could not save practice data: %@" {
                 errorMessage = nil
             }
+            recordRecentPractice(for: activeAudioURL)
         } catch {
             errorMessage = .format("Could not save practice data: %@", error.localizedDescription)
         }
+    }
+
+    // MARK: - Recent Practices
+
+    private static let recentPracticesBaseKey = "recentPractices"
+    static let recentPracticeLimit = 10
+
+    /// The list is stored per storage folder: its saved files (and so its practices) live there.
+    private static func recentPracticesKey(for folder: URL?) -> String {
+        guard let folder else { return recentPracticesBaseKey }
+        return "\(recentPracticesBaseKey).\(folder.standardizedFileURL.path)"
+    }
+
+    /// Before the list was kept per folder, one list was stored under the base key. It belongs
+    /// to the folder in use now, so a chosen folder adopts it once instead of starting empty.
+    private static func migrateLegacyRecentPractices(into folder: URL?) {
+        let defaults = UserDefaults.standard
+        let migratedKey = "\(recentPracticesBaseKey).migrated"
+        guard !defaults.bool(forKey: migratedKey) else { return }
+        defaults.set(true, forKey: migratedKey)
+        guard folder != nil, let legacy = defaults.data(forKey: recentPracticesBaseKey) else { return }
+        let key = recentPracticesKey(for: folder)
+        if defaults.data(forKey: key) == nil { defaults.set(legacy, forKey: key) }
+    }
+
+    private var recentRefreshTask: Task<Void, Never>?
+
+    /// Rebuilds the recent list for `folder` from the practices saved in its `sessions` folder,
+    /// newest first. The remembered list is shown straight away and supplies what the files do
+    /// not record (the audio bookmark of a file picked from elsewhere in Files).
+    func refreshRecentPractices(for folder: URL?) {
+        recentRefreshTask?.cancel()
+        let remembered = Self.loadRecentPractices(for: folder)
+        recentPractices = remembered
+        let sessionsDirectory = StorageFolder.subfolder("sessions", in: folder)
+        let speechDirectory = StorageFolder.subfolder("speech", in: folder)
+        let recordingsDirectory = StorageFolder.subfolder("recordings", in: folder)
+        recentRefreshTask = Task { [weak self] in
+            let practices = await Task.detached(priority: .userInitiated) {
+                Self.scanRecentPractices(
+                    remembered: remembered,
+                    sessionsDirectory: sessionsDirectory,
+                    speechDirectory: speechDirectory,
+                    recordingsDirectory: recordingsDirectory
+                )
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            self.storeRecentPractices(practices, for: folder)
+        }
+    }
+
+    nonisolated private static func scanRecentPractices(
+        remembered: [RecentPractice],
+        sessionsDirectory: URL,
+        speechDirectory: URL,
+        recordingsDirectory: URL
+    ) -> [RecentPractice] {
+        let fileManager = FileManager.default
+        guard let folders = try? fileManager.contentsOfDirectory(
+            at: sessionsDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        ) else { return remembered }
+
+        var modified: [String: Date] = [:]
+        for folder in folders {
+            let file = folder.appendingPathComponent("practice-session.json")
+            guard let values = try? file.resourceValues(forKeys: [.contentModificationDateKey]),
+                  let date = values.contentModificationDate else { continue }
+            modified[folder.lastPathComponent] = date
+        }
+
+        var practices: [RecentPractice] = remembered.compactMap { practice in
+            guard let date = modified[practice.id] else { return nil }
+            var practice = practice
+            practice.lastPracticed = max(practice.lastPracticed, date)
+            return practice
+        }
+        let known = Set(practices.map(\.id))
+        let newest = modified.filter { !known.contains($0.key) }
+            .sorted { $0.value > $1.value }
+            .prefix(recentPracticeLimit)
+        for (id, date) in newest {
+            let sessionFile = sessionsDirectory.appendingPathComponent(id).appendingPathComponent("practice-session.json")
+            guard let data = try? StorageFolder.coordinatedRead(at: sessionFile),
+                  let saved = try? JSONDecoder().decode(SavedPracticeSession.self, from: data) else { continue }
+            let location = [("speech", speechDirectory), ("recordings", recordingsDirectory)].first {
+                fileManager.fileExists(atPath: $0.1.appendingPathComponent(saved.audioFileName).path)
+            }
+            guard let location else { continue }
+            let source: PracticeSource = saved.source
+                ?? (saved.createdFromText ? .typedText : (location.0 == "recordings" ? .recording : .audioFile))
+            practices.append(RecentPractice(
+                id: id,
+                title: id,
+                source: source,
+                audioRelativePath: "\(location.0)/\(saved.audioFileName)",
+                audioBookmark: nil,
+                languageIdentifier: saved.sourceLanguageIdentifier,
+                sentenceCount: saved.sentences.count,
+                currentSentenceIndex: saved.currentSentenceIndex,
+                lastPracticed: date
+            ))
+        }
+        practices.sort { $0.lastPracticed > $1.lastPracticed }
+        return Array(practices.prefix(recentPracticeLimit))
+    }
+
+    private static func loadRecentPractices(for folder: URL?) -> [RecentPractice] {
+        guard let data = UserDefaults.standard.data(forKey: recentPracticesKey(for: folder)),
+              let practices = try? JSONDecoder().decode([RecentPractice].self, from: data) else { return [] }
+        return Array(practices.prefix(recentPracticeLimit))
+    }
+
+    /// Stores the list for `folder`, or for the folder in use when it is `nil`.
+    private func storeRecentPractices(_ practices: [RecentPractice], for folder: URL?? = nil) {
+        recentPractices = practices
+        let target = folder ?? StorageFolder.shared.chosenURL
+        if let data = try? JSONEncoder().encode(practices) {
+            UserDefaults.standard.set(data, forKey: Self.recentPracticesKey(for: target))
+        }
+    }
+
+    /// Moves the practice that was just saved to the top of the recent list.
+    private func recordRecentPractice(for audioURL: URL) {
+        let id = Self.sessionFolderName(for: audioURL)
+        let existing = recentPractices.first { $0.id == id }
+        let relativePath = StorageFolder.shared.relativePath(of: audioURL)
+        var bookmark: Data?
+        if relativePath == nil {
+            bookmark = existing?.audioBookmark
+                ?? (try? audioURL.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil))
+            guard bookmark != nil else { return }
+        }
+        let practice = RecentPractice(
+            id: id,
+            title: id,
+            source: practiceSource,
+            audioRelativePath: relativePath,
+            audioBookmark: bookmark,
+            languageIdentifier: transcriptLocaleIdentifier,
+            sentenceCount: sentences.count,
+            currentSentenceIndex: currentSentenceIndex,
+            lastPracticed: Date()
+        )
+        var practices = recentPractices.filter { $0.id != id }
+        practices.insert(practice, at: 0)
+        storeRecentPractices(Array(practices.prefix(Self.recentPracticeLimit)))
+    }
+
+    private func audioURL(for practice: RecentPractice) -> URL? {
+        if let path = practice.audioRelativePath {
+            return StorageFolder.shared.fileURL(forRelativePath: path)
+        }
+        guard let bookmark = practice.audioBookmark else { return nil }
+        var isStale = false
+        return try? URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale)
+    }
+
+    /// Opens a practice from the recent list with its saved transcript and translation, either
+    /// where the user left off or, with `fromBeginning`, at the first sentence with empty answers.
+    func openRecentPractice(_ practice: RecentPractice, fromBeginning: Bool = false) {
+        resetPlayerAndAudioAccess()
+        errorMessage = nil
+        guard let url = audioURL(for: practice), hasSavedSession(for: url) else {
+            storeRecentPractices(recentPractices.filter { $0.id != practice.id })
+            errorMessage = "This practice is no longer available. Its saved files could not be found."
+            return
+        }
+        practiceSource = practice.source
+        pendingImportKind = practice.source == .audioFile || practice.source == .recording ? .audio : .text
+        pendingTextURL = nil
+        pendingAudioURL = url
+        useSavedSession()
+        pendingAudioURL = nil
+        guard activeAudioURL == url, fromBeginning else { return }
+
+        drafts = [:]
+        answerDraft = ""
+        currentSentenceIndex = 0
+        currentTime = 0
+        player?.currentTime = 0
+        practiceFeedback = ""
+        answerIsRevealed = false
+        practiceGradeTitle = ""
+        practiceGradeScore = nil
+        practiceWordResults = []
+        missingPracticeWords = []
+        savePracticeSession()
+    }
+
+    /// Takes a practice off the recent list. Its saved files stay in the folder.
+    func removeRecentPractice(_ practice: RecentPractice) {
+        storeRecentPractices(recentPractices.filter { $0.id != practice.id })
     }
 
     // MARK: - Speech Permission

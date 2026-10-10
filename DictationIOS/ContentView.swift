@@ -19,6 +19,7 @@ private enum PhotoProcessingStage {
 private enum TextSetupTab: String, CaseIterable, Identifiable {
     case type = "Type"
     case upload = "Upload file"
+    case generate = "Generate"
     var id: String { rawValue }
 }
 
@@ -32,7 +33,6 @@ struct ContentView: View {
     @StateObject private var model = DictationModel()
     @StateObject private var localization = AppLocalization()
     @StateObject private var speaking = SpeakingPracticeModel()
-    @Environment(\.colorScheme) private var colorScheme
     @State private var setupChoice: SetupChoice?
     @State private var textTab: TextSetupTab = .type
     @State private var audioTab: AudioSetupTab = .upload
@@ -41,6 +41,8 @@ struct ContentView: View {
     @State private var showsTranslation = true
     @State private var showsSettings = false
     @State private var showsGradePopup = false
+    @State private var choicesHaveAppeared = false
+    @State private var recentRowHeight: CGFloat = 86
     @State private var gradePopupTask: Task<Void, Never>?
     @State private var showsAudioImporter = false
     @State private var showsTextImporter = false
@@ -62,36 +64,15 @@ struct ContentView: View {
         photoRecognizedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    // MARK: - Colors
-
-    private let studentBlue = Color(red: 0.27, green: 0.40, blue: 0.92)
-    private let studentPurple = Color(red: 0.52, green: 0.35, blue: 0.88)
-    private let studentMint = Color(red: 0.08, green: 0.44, blue: 0.37)
-    private let studentAmber = Color(red: 0.82, green: 0.47, blue: 0.10)
-    private let studentCanvas = Color(red: 0.95, green: 0.96, blue: 0.99)
-    private let studentInk = Color(red: 0.15, green: 0.17, blue: 0.25)
-
-    private var ink: Color {
-        colorScheme == .dark ? Color(red: 0.93, green: 0.94, blue: 0.97) : studentInk
-    }
-
-    private var cardFill: Color {
-        colorScheme == .dark ? Color(red: 0.16, green: 0.17, blue: 0.22) : Color.white.opacity(0.96)
-    }
-
-    private var canvasFill: Color {
-        colorScheme == .dark ? Color(red: 0.12, green: 0.13, blue: 0.17) : studentCanvas
-    }
 
     // MARK: - Body
 
     var body: some View {
         ZStack(alignment: .top) {
-            backgroundGradient.ignoresSafeArea()
+            Clay.canvas.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 header
-                Divider()
                 if model.isTranscribing {
                     transcriptionProgress
                 } else if model.isReviewing {
@@ -105,7 +86,12 @@ struct ContentView: View {
                 }
             }
         }
-        .foregroundStyle(ink)
+        .foregroundStyle(Clay.ink)
+        .tint(Clay.ink)
+        .animation(.spring(duration: 0.4, bounce: 0.2), value: setupChoice)
+        .sensoryFeedback(trigger: model.gradeCheckCount) { _, _ in
+            model.practiceGradeScore == 100 ? .success : .impact
+        }
         .task { await model.loadSpeechLanguages() }
         .translationTask(model.translationConfiguration) { session in
             await model.translate(using: session)
@@ -200,37 +186,24 @@ struct ContentView: View {
         }
     }
 
-    private var backgroundGradient: some View {
-        LinearGradient(
-            colors: colorScheme == .dark
-                ? [Color(red: 0.11, green: 0.12, blue: 0.16), Color(red: 0.08, green: 0.09, blue: 0.12)]
-                : [studentCanvas, Color(red: 0.94, green: 0.95, blue: 1.0)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
     // MARK: - Header
 
     private var header: some View {
         HStack(spacing: 12) {
-            Image(systemName: "waveform.and.mic")
-                .font(.system(size: 20, weight: .semibold))
+            Image(systemName: "waveform")
+                .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(.white)
+                .symbolEffect(.variableColor.iterative, isActive: model.isPlaying)
                 .frame(width: 40, height: 40)
-                .background(
-                    LinearGradient(colors: [studentBlue, studentPurple], startPoint: .topLeading, endPoint: .bottomTrailing),
-                    in: RoundedRectangle(cornerRadius: 12)
-                )
-                .shadow(color: studentPurple.opacity(0.22), radius: 6, y: 3)
+                .background(Clay.pink, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(verbatim: "EchoLingo")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(ink)
+                    .font(.clayTitle)
+                    .tracking(-0.4)
                 Text(tr("Listen \u{2022} learn \u{2022} level up"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Clay.muted)
             }
 
             Spacer()
@@ -240,10 +213,8 @@ struct ContentView: View {
                     returnToSetup()
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 32, height: 32)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.clayIcon)
                 .accessibilityLabel(tr("Start over"))
             }
 
@@ -251,14 +222,12 @@ struct ContentView: View {
                 showsSettings = true
             } label: {
                 Image(systemName: "gearshape")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 32, height: 32)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.clayIcon)
+            .accessibilityLabel(tr("Settings"))
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(backgroundGradient)
+        .padding(.vertical, 10)
     }
 
     // MARK: - Setup
@@ -278,14 +247,22 @@ struct ContentView: View {
     }
 
     private var choiceScreen: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 16) {
+                EqualizerBars(height: 72)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: .infinity)
+                    .background(Clay.surfaceSoft, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
+
                 Text(tr("What do you want to practice?"))
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(ink)
+                    .font(.clayDisplay)
+                    .tracking(-0.8)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(tr("Start from text or from audio. Speech, transcription, and translations stay on your device."))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.body)
+                    .lineSpacing(3)
+                    .foregroundStyle(Clay.body)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -294,66 +271,228 @@ struct ContentView: View {
                     title: tr("Text"),
                     subtitle: tr("Type words or upload a text file"),
                     systemImage: "text.alignleft",
-                    tint: studentMint
+                    accent: .pink,
+                    order: 0
                 ) { setupChoice = .text }
 
                 choiceButton(
                     title: tr("Audio"),
                     subtitle: tr("Upload a file or record your own"),
                     systemImage: "waveform",
-                    tint: studentBlue
+                    accent: .lavender,
+                    order: 1
                 ) { setupChoice = .audio }
 
                 choiceButton(
                     title: tr("Photo"),
                     subtitle: tr("Take or upload a photo, then edit the recognized text"),
                     systemImage: "text.viewfinder",
-                    tint: studentAmber
+                    accent: .peach,
+                    order: 2
                 ) { setupChoice = .photo }
+            }
+
+            if !model.recentPractices.isEmpty {
+                recentPracticesSection
+            }
+        }
+        .onAppear { choicesHaveAppeared = true }
+    }
+
+    // MARK: - Recent Practices
+
+    private static let recentAccents: [ClayAccent] = [.ochre, .mint, .lavender, .peach, .pink]
+
+    private var recentPracticesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(tr("Recent practices"))
+                .clayEyebrow()
+
+            if model.recentPractices.count > Self.visibleRecentRows {
+                // Taller lists scroll inside a window that fits exactly three rows.
+                ScrollView {
+                    recentPracticeRows
+                        .padding(.trailing, 12)
+                }
+                .scrollIndicators(.visible)
+                .scrollIndicatorsFlash(onAppear: true)
+                .frame(
+                    height: recentRowHeight * CGFloat(Self.visibleRecentRows)
+                        + Self.recentRowSpacing * CGFloat(Self.visibleRecentRows - 1)
+                )
+            } else {
+                recentPracticeRows
             }
         }
     }
+
+    private static let visibleRecentRows = 3
+    private static let recentRowSpacing: CGFloat = 12
+
+    private var recentPracticeRows: some View {
+        VStack(spacing: Self.recentRowSpacing) {
+            ForEach(Array(model.recentPractices.enumerated()), id: \.element.id) { index, practice in
+                recentPracticeRow(practice, accent: Self.recentAccents[index % Self.recentAccents.count])
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { height in
+                        recentRowHeight = height
+                    }
+            }
+        }
+    }
+
+    private func recentPracticeRow(_ practice: RecentPractice, accent: ClayAccent) -> some View {
+        let sentenceNumber = min(practice.currentSentenceIndex + 1, max(practice.sentenceCount, 1))
+        return HStack(spacing: 4) {
+            Button {
+                model.openRecentPractice(practice)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: sourceIcon(practice.source))
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(accent.on)
+                        .frame(width: 44, height: 44)
+                        .background(accent.fill, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(practice.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Clay.ink)
+                            .lineLimit(1)
+                        Text(recentPracticeDetail(practice))
+                            .font(.caption)
+                            .foregroundStyle(Clay.muted)
+                            .lineLimit(1)
+                        HStack(spacing: 8) {
+                            ProgressView(value: Double(sentenceNumber), total: Double(max(practice.sentenceCount, 1)))
+                                .tint(Clay.ink)
+                            Text("\(sentenceNumber)/\(practice.sentenceCount)")
+                                .font(.caption2.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(Clay.muted)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.clayPressable)
+
+            Menu {
+                recentPracticeActions(practice)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Clay.ink)
+                    .frame(width: 40, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(tr("More"))
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 4)
+        .padding(.vertical, 12)
+        .clayCard(Clay.surfaceCard, border: nil)
+        .contextMenu { recentPracticeActions(practice) }
+    }
+
+    @ViewBuilder
+    private func recentPracticeActions(_ practice: RecentPractice) -> some View {
+        Button {
+            model.openRecentPractice(practice)
+        } label: {
+            Label(tr("Continue"), systemImage: "play.fill")
+        }
+        Button {
+            model.openRecentPractice(practice, fromBeginning: true)
+        } label: {
+            Label(tr("Start from the beginning"), systemImage: "arrow.counterclockwise")
+        }
+        Divider()
+        Button(role: .destructive) {
+            withAnimation(.spring(duration: 0.35, bounce: 0.2)) {
+                model.removeRecentPractice(practice)
+            }
+        } label: {
+            Label(tr("Remove from list"), systemImage: "trash")
+        }
+    }
+
+    private func sourceIcon(_ source: PracticeSource) -> String {
+        switch source {
+        case .typedText: "keyboard"
+        case .textFile: "doc.text"
+        case .photo: "text.viewfinder"
+        case .audioFile: "waveform"
+        case .recording: "mic.fill"
+        }
+    }
+
+    private func sourceTitle(_ source: PracticeSource) -> String {
+        switch source {
+        case .typedText: tr("Typed text")
+        case .textFile: tr("Text file")
+        case .photo: tr("Photo")
+        case .audioFile: tr("Audio file")
+        case .recording: tr("Recording")
+        }
+    }
+
+    private func recentPracticeDetail(_ practice: RecentPractice) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: localization.resolvedCode)
+        formatter.unitsStyle = .abbreviated
+        formatter.dateTimeStyle = .named
+        return [
+            sourceTitle(practice.source),
+            localization.languageName(for: practice.languageIdentifier),
+            formatter.localizedString(for: practice.lastPracticed, relativeTo: Date())
+        ].joined(separator: " \u{00B7} ")
+    }
+
+    // MARK: - Setup Details
 
     private var detailScreen: some View {
         VStack(alignment: .leading, spacing: 16) {
             Button {
                 leaveDetailScreen()
             } label: {
-                Label(tr("Back"), systemImage: "chevron.left")
+                Label(tr("Back"), systemImage: "arrow.left")
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(studentPurple)
+            .buttonStyle(.claySecondary)
+            .controlSize(.small)
 
             languageCard
 
             if setupChoice == .text {
-                Picker(tr("Text source"), selection: $textTab) {
-                    ForEach(TextSetupTab.allCases) { tab in
-                        Text(tr(tab.rawValue)).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                ClayTabs(
+                    items: TextSetupTab.allCases.map { ClayTabItem(value: $0, title: tr($0.rawValue)) },
+                    selection: $textTab
+                )
 
                 if textTab == .type {
                     typedTextCard
+                } else if textTab == .generate {
+                    GeneratedTextCard(
+                        languageIdentifier: model.selectedSpeechLocale,
+                        tr: { tr($0) }
+                    ) { text in
+                        model.importTypedText(text, suggestedName: suggestedFilename(for: text))
+                    }
                 } else {
                     uploadCard(
                         systemImage: "doc.text",
                         title: tr("Upload a text file"),
                         message: tr("The text is read aloud, and the spoken audio is saved in your folder."),
                         buttonTitle: tr("Choose Text"),
-                        tint: studentMint
+                        accent: .pink
                     ) { showsTextImporter = true }
                 }
             } else if setupChoice == .audio {
-                Picker(tr("Audio source"), selection: $audioTab) {
-                    ForEach(AudioSetupTab.allCases) { tab in
-                        Text(tr(tab.rawValue)).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                ClayTabs(
+                    items: AudioSetupTab.allCases.map { ClayTabItem(value: $0, title: tr($0.rawValue)) },
+                    selection: $audioTab
+                )
 
                 if audioTab == .upload {
                     uploadCard(
@@ -361,7 +500,7 @@ struct ContentView: View {
                         title: tr("Upload an audio file"),
                         message: tr("MP3, WAV, M4A, and other audio formats are transcribed on your device."),
                         buttonTitle: tr("Choose Audio"),
-                        tint: studentBlue
+                        accent: .lavender
                     ) { showsAudioImporter = true }
                 } else {
                     recordingCard
@@ -388,6 +527,10 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity)
 
+            Image(systemName: "arrow.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Clay.muted)
+
             Picker(tr("Translation"), selection: $model.selectedTranslationLanguage) {
                 ForEach(TranslationLanguage.supported) { language in
                     Text(localization.languageName(for: language.code)).tag(language.code)
@@ -395,9 +538,9 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .padding(14)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(studentBlue.opacity(0.16)) }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .clayCard(Clay.surfaceCard, border: nil)
     }
 
     private var typedTextCard: some View {
@@ -411,18 +554,17 @@ struct ContentView: View {
                 if typedText.isEmpty {
                     Text(tr("Type or paste the text you want to hear\u{2026}"))
                         .font(.body)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Clay.muted)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 14)
                         .allowsHitTesting(false)
                 }
             }
-            .background(canvasFill, in: RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(studentMint.opacity(0.2)) }
+            .clayInput()
 
             Text(tr("Speech is generated on your device and saved in your folder."))
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Clay.muted)
                 .fixedSize(horizontal: false, vertical: true)
 
             Button {
@@ -431,13 +573,11 @@ struct ContentView: View {
                 Label(tr("Create Speech"), systemImage: "waveform")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(studentMint)
+            .buttonStyle(.clayPrimary)
             .disabled(typedTextIsEmpty)
         }
         .padding(16)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(studentMint.opacity(0.18)) }
+        .clayCard(Clay.surfaceCard, border: nil)
     }
 
     private var recordingCard: some View {
@@ -445,10 +585,14 @@ struct ContentView: View {
             if model.hasRecordingPreview && !model.isRecording {
                 recordingReview
             } else {
+                EqualizerBars(height: 44, isAnimating: model.isRecording)
+                    .frame(width: 160)
+                    .opacity(model.isRecording ? 1 : 0.35)
+
                 Text(Self.timeString(model.recordingDuration))
-                    .font(.system(size: 44, weight: .semibold, design: .rounded))
+                    .font(.system(size: 44, weight: .medium, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(model.isRecording ? .red : ink)
+                    .foregroundStyle(model.isRecording ? Clay.errorText : Clay.ink)
 
                 Button {
                     if model.isRecording { model.stopRecording() }
@@ -457,16 +601,18 @@ struct ContentView: View {
                     Image(systemName: model.isRecording ? "stop.fill" : "mic.fill")
                         .font(.system(size: 28, weight: .bold))
                         .foregroundStyle(.white)
+                        .contentTransition(.symbolEffect(.replace))
                         .frame(width: 80, height: 80)
-                        .background(model.isRecording ? Color.red : studentBlue, in: Circle())
+                        .background(model.isRecording ? Clay.error : Clay.pink, in: Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.clayPressable)
+                .accessibilityLabel(model.isRecording ? tr("Stop") : tr("Record"))
 
                 Text(model.isRecording
                      ? tr("Recording. Press stop when you are finished, then listen back.")
                      : tr("Record with your microphone. You can play it back before saving."))
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Clay.muted)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -474,28 +620,26 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
         .padding(.horizontal, 16)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder((model.isRecording ? Color.red : studentBlue).opacity(0.2)) }
+        .clayCard(Clay.surfaceCard, radius: Clay.Radius.xl, border: model.isRecording ? Clay.error : nil)
     }
 
     private var recordingReview: some View {
         VStack(spacing: 14) {
             Text(tr("Listen to your recording"))
-                .font(.headline)
-                .foregroundStyle(ink)
+                .font(.clayTitle)
 
             HStack(spacing: 8) {
                 Text(Self.timeString(model.recordingPreviewTime))
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Clay.muted)
                 Slider(value: Binding(
                     get: { model.recordingPreviewTime },
                     set: { model.seekRecordingPreview(to: $0) }
                 ), in: 0...max(model.recordingPreviewDuration, 0.1))
-                .tint(studentBlue)
+                .tint(Clay.pink)
                 Text(Self.timeString(model.recordingPreviewDuration))
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Clay.muted)
             }
             .font(.caption)
 
@@ -506,15 +650,14 @@ struct ContentView: View {
                     Label(model.isPlayingRecording ? tr("Pause") : tr("Play"),
                           systemImage: model.isPlayingRecording ? "pause.fill" : "play.fill")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(studentBlue)
+                .buttonStyle(.claySecondary)
 
                 Button {
                     model.startRecording()
                 } label: {
                     Label(tr("Record again"), systemImage: "mic.fill")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.claySecondary)
             }
 
             Button {
@@ -523,12 +666,11 @@ struct ContentView: View {
                 Label(tr("Start Dictation"), systemImage: "square.and.arrow.down")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(studentPurple)
+            .buttonStyle(.clayPrimary)
 
             Text(tr("Play the recording first. When it sounds right, save it and dictation will begin."))
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Clay.muted)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -537,23 +679,20 @@ struct ContentView: View {
     private var photoCaptureCard: some View {
         VStack(spacing: 16) {
             if isRecognizingPhotoText {
-                ProgressView()
-                    .controlSize(.large)
+                EqualizerBars(height: 44)
+                    .frame(width: 160)
                 Text(photoProcessingStage == .formatting
                      ? tr("Formatting the recognized text\u{2026}")
                      : tr("Reading the text in your photo\u{2026}"))
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Clay.muted)
             } else {
-                Image(systemName: "text.viewfinder")
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundStyle(studentAmber)
+                accentIcon("text.viewfinder", accent: .peach)
                 Text(tr("Scan a photo of text"))
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(ink)
+                    .font(.clayTitle)
                 Text(tr("Take a photo or choose one from your library. The text is recognized on your device."))
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Clay.muted)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -565,26 +704,22 @@ struct ContentView: View {
                             Label(tr("Take Photo"), systemImage: "camera.fill")
                                 .frame(width: 60)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(studentAmber)
+                        .buttonStyle(.clayPrimary)
                     }
 
                     PhotosPicker(selection: $selectedPhotoPickerItem, matching: .images) {
                         Label(tr("Choose Photo"), systemImage: "photo.on.rectangle")
                             .frame(width: 60)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(studentAmber)
+                    .buttonStyle(.claySecondary)
                 }
                 .labelStyle(.iconOnly)
-                .controlSize(.large)
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
         .padding(.horizontal, 16)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(studentAmber.opacity(0.2)) }
+        .clayCard(Clay.surfaceCard, radius: Clay.Radius.xl, border: nil)
     }
 
     private var photoReviewCard: some View {
@@ -598,18 +733,17 @@ struct ContentView: View {
                 if photoRecognizedText.isEmpty {
                     Text(tr("No text was recognized. You can type it in manually."))
                         .font(.body)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Clay.muted)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 14)
                         .allowsHitTesting(false)
                 }
             }
-            .background(canvasFill, in: RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(studentAmber.opacity(0.2)) }
+            .clayInput()
 
             Text(tr("Check the recognized text, fix any mistakes, then create the speech."))
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Clay.muted)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 12) {
@@ -618,7 +752,7 @@ struct ContentView: View {
                 } label: {
                     Label(tr("Retake"), systemImage: "arrow.counterclockwise")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.claySecondary)
 
                 Spacer()
 
@@ -627,29 +761,28 @@ struct ContentView: View {
                 } label: {
                     Label(tr("Create Speech"), systemImage: "waveform")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(studentAmber)
+                .buttonStyle(.clayPrimary)
                 .disabled(photoRecognizedTextIsEmpty)
             }
         }
         .padding(16)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(studentAmber.opacity(0.18)) }
+        .clayCard(Clay.surfaceCard, border: nil)
     }
 
     // MARK: - Transcription Progress
 
     private var transcriptionProgress: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             Spacer()
-            ProgressView()
-                .controlSize(.large)
+            EqualizerBars(height: 72)
+                .frame(width: 200)
             Text(model.processingTitle.isEmpty ? tr("Working on %@", model.fileName) : localized(model.processingTitle))
-                .font(.headline)
+                .font(.clayTitle)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
             Text(model.transcriptionMode.isEmpty ? tr("Preparing\u{2026}") : localized(model.transcriptionMode))
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Clay.muted)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
             Spacer()
@@ -663,11 +796,10 @@ struct ContentView: View {
         VStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(tr("Edit the text"))
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(ink)
+                    .font(.clayTitle)
                 Text(tr("This text is the source, so any change regenerates the speech for it."))
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Clay.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -680,24 +812,20 @@ struct ContentView: View {
             .scrollContentBackground(.hidden)
             .padding(8)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(canvasFill, in: RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(studentMint.opacity(0.2)) }
+            .clayInput()
 
             HStack(spacing: 12) {
                 Button(tr("Cancel")) {
                     model.cancelEditingSourceText()
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
+                .buttonStyle(.claySecondary)
                 Spacer()
                 Button {
                     Task { await model.confirmSourceTextEdit() }
                 } label: {
                     Label(tr("Regenerate Speech"), systemImage: "waveform")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(studentMint)
-                .controlSize(.large)
+                .buttonStyle(.clayPrimary)
                 .disabled(model.sourceTextDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -715,11 +843,10 @@ struct ContentView: View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(tr("Review the transcription"))
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(ink)
+                    .font(.clayTitle)
                 Text(tr("Listen to each sentence and fix any mistakes. Punctuation and capitalization changes don't count."))
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Clay.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -733,10 +860,7 @@ struct ContentView: View {
                             model: model,
                             localization: localization,
                             index: index,
-                            sentence: sentence,
-                            studentPurple: studentPurple,
-                            cardFill: cardFill,
-                            canvasFill: canvasFill
+                            sentence: sentence
                         )
                     }
                 }
@@ -759,14 +883,13 @@ struct ContentView: View {
             if blockedCount > 0 {
                 Label(tr("Fix the highlighted sentences to continue."), systemImage: "exclamationmark.triangle.fill")
                     .font(.callout.weight(.medium))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Clay.errorText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack(spacing: 12) {
                 if model.canCancelReview {
                     Button(tr("Cancel")) { model.cancelReview() }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
+                        .buttonStyle(.claySecondary)
                 }
                 Spacer()
                 Button {
@@ -777,15 +900,12 @@ struct ContentView: View {
                         systemImage: "checkmark.circle.fill"
                     )
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(studentPurple)
-                .controlSize(.large)
+                .buttonStyle(.clayPrimary)
                 .disabled(blockedCount > 0)
             }
         }
         .padding(14)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 18))
-        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(studentPurple.opacity(0.16)) }
+        .clayCard(Clay.surfaceCard, border: nil)
         .padding(.horizontal, 16)
         .padding(.bottom, 16)
     }
@@ -807,7 +927,7 @@ struct ContentView: View {
                                 if showsGradePopup, !model.practiceGradeTitle.isEmpty {
                                     gradePopup
                                         .offset(y: -30)
-                                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                                        .transition(.scale(scale: 0.8).combined(with: .opacity))
                                 }
                             }
                             .onChange(of: model.gradeCheckCount) { _, _ in flashGradePopup() }
@@ -853,7 +973,7 @@ struct ContentView: View {
             } else {
                 Label(tr("Turn on Original text or Translation to show a panel."), systemImage: "eye.slash")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Clay.muted)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
             }
@@ -861,13 +981,14 @@ struct ContentView: View {
     }
 
     private var sessionCard: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
                 Image(systemName: "waveform")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(studentBlue)
-                    .padding(8)
-                    .background(studentBlue.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(.white)
+                    .symbolEffect(.variableColor.iterative, isActive: model.isPlaying)
+                    .frame(width: 40, height: 40)
+                    .background(Clay.pink, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.fileName)
@@ -875,7 +996,7 @@ struct ContentView: View {
                         .lineLimit(1)
                     Text(localized(model.sessionDetail))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Clay.muted)
                         .lineLimit(1)
                 }
 
@@ -883,86 +1004,86 @@ struct ContentView: View {
 
                 Text("\(model.currentSentenceIndex + 1)/\(model.sentences.count)")
                     .font(.callout.monospacedDigit().weight(.bold))
-                    .foregroundStyle(studentPurple)
+                    .contentTransition(.numericText())
+                    .animation(.snappy, value: model.currentSentenceIndex)
+                    .foregroundStyle(Clay.onColor)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Clay.ochre, in: Capsule())
             }
-
-            Divider()
 
             HStack(spacing: 8) {
                 Toggle(isOn: $showsOriginalText) {
                     Label(tr("Original"), systemImage: "text.quote")
                 }
-                .tint(studentBlue)
+                .toggleStyle(ClayChipToggleStyle(accent: .lavender))
 
                 Toggle(isOn: $showsTranslation) {
                     Label(tr("Translation"), systemImage: "character.bubble")
                 }
-                .tint(studentMint)
+                .toggleStyle(ClayChipToggleStyle(accent: .mint))
 
                 if model.canEditText {
                     Button {
                         model.beginEditingText()
                     } label: {
-                        Label(tr("Edit text"), systemImage: "pencil")
+                        Image(systemName: "pencil")
                     }
-                    .tint(studentPurple)
+                    .buttonStyle(.clayIcon)
+                    .accessibilityLabel(tr("Edit text"))
                 } else if model.canEditSourceText {
                     Button {
                         model.beginEditingSourceText()
                     } label: {
-                        Label(tr("Edit text"), systemImage: "pencil")
+                        Image(systemName: "pencil")
                     }
-                    .tint(studentMint)
+                    .buttonStyle(.clayIcon)
+                    .accessibilityLabel(tr("Edit text"))
                 }
 
                 Spacer()
 
                 modeSwitcher
             }
-            .labelStyle(.iconOnly)
-            .toggleStyle(.button)
-            .buttonStyle(.bordered)
         }
-        .padding(12)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 14))
-        .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(studentPurple.opacity(0.13)) }
+        .padding(14)
+        .clayCard(Clay.surfaceCard, border: nil)
     }
 
     private var modeSwitcher: some View {
-        Picker(tr("Mode"), selection: $model.sentenceOnly) {
-            Label(tr("Listen"), systemImage: "ear").tag(false)
-            Label(tr("Dictate"), systemImage: "pencil.and.outline").tag(true)
-        }
-        .pickerStyle(.segmented)
-        .labelStyle(.iconOnly)
-        .frame(width: 92)
+        ClayTabs(
+            items: [
+                ClayTabItem(value: false, title: tr("Listen"), systemImage: "ear"),
+                ClayTabItem(value: true, title: tr("Dictate"), systemImage: "pencil.and.outline")
+            ],
+            selection: $model.sentenceOnly,
+            iconOnly: true
+        )
     }
 
     private var transcriptCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Label(localization.languageName(for: model.selectedSpeechLocale), systemImage: "text.quote")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(studentBlue)
+                .clayBadge(.lavender)
 
-            sentencePanel(model.sentences.map(\.text), highlightColor: studentBlue, height: 118)
+            sentencePanel(model.sentences.map(\.text), accent: .lavender, height: 118)
 
             if !model.punctuationStatus.isEmpty {
                 Text(localized(model.punctuationStatus))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Clay.muted)
             }
         }
         .padding(14)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(studentBlue.opacity(0.16)) }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clayCard()
     }
 
     private var translationCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label(tr("Translation"), systemImage: "character.bubble")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(studentMint)
+                    .clayBadge(.mint)
                 Spacer()
                 Picker(tr("Translation language"), selection: $model.selectedTranslationLanguage) {
                     ForEach(TranslationLanguage.supported) { language in
@@ -977,23 +1098,22 @@ struct ContentView: View {
                 model.sentences.indices.map { index in
                     model.translatedSentences.indices.contains(index) ? model.translatedSentences[index] : ""
                 },
-                highlightColor: studentMint,
+                accent: .mint,
                 height: 118
             )
 
             Text(translationCaption)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Clay.muted)
         }
         .padding(14)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(studentMint.opacity(0.18)) }
+        .clayCard()
     }
 
-    private func sentencePanel(_ texts: [String], highlightColor: Color, height: CGFloat) -> some View {
+    private func sentencePanel(_ texts: [String], accent: ClayAccent, height: CGFloat) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
-                sentenceRows(texts, highlightColor: highlightColor)
+                sentenceRows(texts, accent: accent)
             }
             .frame(height: height)
             .onAppear {
@@ -1007,7 +1127,7 @@ struct ContentView: View {
         }
     }
 
-    private func sentenceRows(_ texts: [String], highlightColor: Color) -> some View {
+    private func sentenceRows(_ texts: [String], accent: ClayAccent) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(texts.enumerated()), id: \.offset) { index, text in
                 let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1021,13 +1141,14 @@ struct ContentView: View {
                             .lineSpacing(3)
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .foregroundStyle(isCurrent ? .white : ink)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
+                            .foregroundStyle(isCurrent ? accent.on : Clay.body)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
                             .background(
-                                isCurrent ? highlightColor : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 8)
+                                isCurrent ? accent.fill : Color.clear,
+                                in: RoundedRectangle(cornerRadius: Clay.Radius.sm, style: .continuous)
                             )
+                            .animation(.spring(duration: 0.3, bounce: 0.2), value: isCurrent)
                     }
                     .buttonStyle(.plain)
                 }
@@ -1038,33 +1159,32 @@ struct ContentView: View {
     private var practiceCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 6) {
                     Label(tr("Write what you hear"), systemImage: "pencil.and.outline")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(studentPurple)
+                        .clayBadge(.ochre)
                     Text(tr("Listen closely, then write the sentence from memory."))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Clay.muted)
                 }
                 Spacer(minLength: 8)
                 HStack(spacing: 8) {
-                    Button {
-                        model.checkAnswer()
-                    } label: {
-                        Label(tr("Check"), systemImage: "checkmark.circle.fill")
-                            .labelStyle(.iconOnly)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(studentPurple)
-                    .controlSize(.small)
                     Button {
                         model.toggleAnswerVisibility()
                     } label: {
                         Image(systemName: model.answerIsRevealed ? "eye.slash" : "eye")
                     }
-                    .buttonStyle(.bordered)
-                    .tint(studentBlue)
-                    .controlSize(.small)
+                    .buttonStyle(.clayIcon)
+                    Button {
+                        model.checkAnswer()
+                    } label: {
+                        Label(tr("Check"), systemImage: "checkmark")
+                            .labelStyle(.iconOnly)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(Clay.onInk)
+                            .frame(width: 40, height: 40)
+                            .background(Clay.ink, in: Circle())
+                    }
+                    .buttonStyle(.clayPressable)
                 }
             }
 
@@ -1079,17 +1199,18 @@ struct ContentView: View {
                     .scrollContentBackground(.hidden)
                     .padding(5)
                     .focused($isAnswerFieldFocused)
-                    .background(canvasFill, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(studentPurple.opacity(0.16)) }
+                    .clayInput(
+                        border: isAnswerFieldFocused ? Clay.ink : Clay.hairline,
+                        lineWidth: isAnswerFieldFocused ? 1.5 : 1
+                    )
 
                     if !model.practiceFeedback.isEmpty {
                         Text(localized(model.practiceFeedback))
                             .font(.callout.weight(.medium))
-                            .foregroundStyle(ink)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(8)
+                            .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(canvasFill, in: RoundedRectangle(cornerRadius: 10))
+                            .background(Clay.surfaceCard, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
                     }
 
                     if !model.practiceWordResults.isEmpty {
@@ -1099,12 +1220,12 @@ struct ContentView: View {
                         if !model.missingPracticeWords.isEmpty {
                             Text(tr("Missing: %@", model.missingPracticeWords.joined(separator: " ")))
                                 .font(.callout)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(Clay.errorText)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         HStack(spacing: 10) {
-                            Label(tr("Correct"), systemImage: "checkmark").foregroundStyle(.green)
-                            Label(tr("Review"), systemImage: "xmark").foregroundStyle(.red)
+                            Label(tr("Correct"), systemImage: "checkmark").foregroundStyle(Clay.successText)
+                            Label(tr("Review"), systemImage: "xmark").foregroundStyle(Clay.errorText)
                         }
                         .font(.caption)
                     }
@@ -1113,38 +1234,35 @@ struct ContentView: View {
             .frame(maxHeight: 220)
         }
         .padding(14)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(studentPurple.opacity(0.16)) }
+        .clayCard()
     }
 
     private var gradePopup: some View {
-        HStack(spacing: 12) {
+        let accent = scoreAccent(model.practiceGradeScore ?? 0)
+        return HStack(spacing: 12) {
             Image(systemName: model.practiceGradeScore == 100 ? "star.fill" : "sparkles")
                 .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
+                .symbolEffect(.bounce, value: model.gradeCheckCount)
                 .frame(width: 42, height: 42)
-                .background(gradeColor, in: RoundedRectangle(cornerRadius: 13))
+                .background(accent.on.opacity(0.12), in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text(localized(model.practiceGradeTitle))
-                    .font(.headline.weight(.heavy))
-                    .foregroundStyle(gradeColor)
+                    .font(.clayTitle)
                 Text("\(model.practiceGradeScore ?? 0)%")
                     .font(.subheadline.weight(.bold).monospacedDigit())
-                    .foregroundStyle(ink)
             }
         }
+        .foregroundStyle(accent.on)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .background(gradeColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(gradeColor.opacity(0.45), lineWidth: 1.5) }
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 5)
+        .background(accent.fill, in: RoundedRectangle(cornerRadius: Clay.Radius.lg, style: .continuous))
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
         .allowsHitTesting(false)
     }
 
     private func flashGradePopup() {
         gradePopupTask?.cancel()
-        withAnimation(.spring(duration: 0.3)) { showsGradePopup = true }
+        withAnimation(.spring(duration: 0.4, bounce: 0.45)) { showsGradePopup = true }
         gradePopupTask = Task {
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
@@ -1157,27 +1275,23 @@ struct ContentView: View {
         for word in model.practiceWordResults {
             if !result.characters.isEmpty { result.append(AttributedString(" ")) }
             var typedWord = AttributedString(word.text)
-            typedWord.foregroundColor = word.isCorrect ? .green : .red
+            typedWord.foregroundColor = word.isCorrect ? Clay.successText : Clay.errorText
             result.append(typedWord)
             if let expectedText = word.expectedText {
                 var correction = AttributedString(" → \(expectedText)")
-                correction.foregroundColor = .green
+                correction.foregroundColor = Clay.successText
                 result.append(correction)
             }
         }
         return result
     }
 
-    private var gradeColor: Color {
-        scoreColor(model.practiceGradeScore ?? 0)
-    }
-
-    private func scoreColor(_ score: Int) -> Color {
+    private func scoreAccent(_ score: Int) -> ClayAccent {
         switch score {
-        case 100: studentMint
-        case 85...: studentBlue
-        case 65..<85: studentPurple
-        default: Color(red: 0.72, green: 0.36, blue: 0.12)
+        case 100: .mint
+        case 85...: .lavender
+        case 65..<85: .ochre
+        default: .peach
         }
     }
 
@@ -1185,13 +1299,12 @@ struct ContentView: View {
 
     private var speakingCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 6) {
                 Label(tr("Say it out loud"), systemImage: "waveform.and.mic")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(studentBlue)
+                    .clayBadge(.pink)
                 Text(tr("Record yourself reading the sentence. Try as many times as you like."))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Clay.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -1205,10 +1318,11 @@ struct ContentView: View {
                     Image(systemName: speaking.isRecording ? "stop.fill" : "mic.fill")
                         .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(.white)
+                        .contentTransition(.symbolEffect(.replace))
                         .frame(width: 56, height: 56)
-                        .background(speaking.isRecording ? Color.red : studentBlue, in: Circle())
+                        .background(speaking.isRecording ? Clay.error : Clay.pink, in: Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.clayPressable)
                 .accessibilityLabel(speaking.isRecording ? tr("Stop") : tr("Record"))
 
                 if speaking.hasRecording && !speaking.isRecording {
@@ -1218,11 +1332,12 @@ struct ContentView: View {
                     } label: {
                         Image(systemName: speaking.isPlaying ? "stop.fill" : "play.fill")
                             .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(studentBlue)
+                            .foregroundStyle(Clay.ink)
+                            .contentTransition(.symbolEffect(.replace))
                             .frame(width: 56, height: 56)
-                            .background(studentBlue.opacity(0.12), in: Circle())
+                            .background(Clay.surfaceCard, in: Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.clayPressable)
                     .accessibilityLabel(speaking.isPlaying ? tr("Stop") : tr("Play my recording"))
                 }
 
@@ -1231,45 +1346,45 @@ struct ContentView: View {
                          ? tr("Listening\u{2026}")
                          : (speaking.attemptCount > 0 ? tr("Record again") : tr("Tap to record")))
                         .font(.callout.weight(.semibold))
-                        .foregroundStyle(speaking.isRecording ? .red : ink)
+                        .foregroundStyle(speaking.isRecording ? Clay.errorText : Clay.ink)
                     if speaking.attemptCount > 0 && !speaking.isRecording {
                         Text(tr("Attempts: %@", String(speaking.attemptCount)))
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Clay.muted)
                     }
                 }
 
                 Spacer(minLength: 8)
 
                 if let score = speaking.score, !speaking.isRecording {
+                    let accent = scoreAccent(score)
                     VStack(spacing: 0) {
                         Text("\(score)%")
                             .font(.title3.weight(.heavy).monospacedDigit())
                         Text(tr(speakingRatingTitle(score)))
                             .font(.caption2.weight(.semibold))
                     }
-                    .foregroundStyle(scoreColor(score))
-                    .padding(.horizontal, 10)
+                    .foregroundStyle(accent.on)
+                    .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(scoreColor(score).opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                    .background(accent.fill, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
                 }
             }
 
             if speaking.isRecording || speaking.score != nil {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(tr("Recognized"))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .clayEyebrow()
                     Text(speaking.recognizedText.isEmpty
                          ? (speaking.isRecording ? tr("Start speaking\u{2026}") : tr("Nothing was recognized. Try again."))
                          : speaking.recognizedText)
                         .font(.callout)
-                        .foregroundStyle(speaking.recognizedText.isEmpty ? .secondary : ink)
+                        .foregroundStyle(speaking.recognizedText.isEmpty ? Clay.muted : Clay.ink)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(8)
+                .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(canvasFill, in: RoundedRectangle(cornerRadius: 10))
+                .background(Clay.surfaceCard, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
             }
 
             if !speaking.wordResults.isEmpty && !speaking.isRecording {
@@ -1277,8 +1392,8 @@ struct ContentView: View {
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 10) {
-                    Label(tr("Heard"), systemImage: "checkmark").foregroundStyle(.green)
-                    Label(tr("Not heard"), systemImage: "xmark").foregroundStyle(.red)
+                    Label(tr("Heard"), systemImage: "checkmark").foregroundStyle(Clay.successText)
+                    Label(tr("Not heard"), systemImage: "xmark").foregroundStyle(Clay.errorText)
                 }
                 .font(.caption)
             }
@@ -1286,14 +1401,13 @@ struct ContentView: View {
             if let message = speaking.errorMessage {
                 Text(localized(message))
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Clay.errorText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder((speaking.isRecording ? Color.red : studentBlue).opacity(0.2)) }
+        .clayCard(border: speaking.isRecording ? Clay.error : Clay.hairline)
         .onDisappear { speaking.reset() }
     }
 
@@ -1302,7 +1416,7 @@ struct ContentView: View {
         for word in speaking.wordResults {
             if !result.characters.isEmpty { result.append(AttributedString(" ")) }
             var spokenWord = AttributedString(word.text)
-            spokenWord.foregroundColor = word.isRecognized ? .green : .red
+            spokenWord.foregroundColor = word.isRecognized ? Clay.successText : Clay.errorText
             result.append(spokenWord)
         }
         return result
@@ -1320,48 +1434,50 @@ struct ContentView: View {
     // MARK: - Playback Controls
 
     private var playbackControls: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             HStack(spacing: 8) {
                 Text(Self.timeString(model.currentTime))
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
                 Slider(value: Binding(
                     get: { model.currentTime },
                     set: { model.seek(to: $0) }
                 ), in: 0...max(model.duration, 1))
-                .tint(studentPurple)
+                .tint(Clay.ochre)
                 Text(Self.timeString(model.duration))
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
             }
             .font(.caption)
+            .foregroundStyle(.white.opacity(0.75))
 
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
                 Button {
                     model.moveSentence(by: -1)
                 } label: {
-                    Image(systemName: "backward.end.fill")
-                        .font(.title3)
-                        .frame(width: 44, height: 36)
+                    playbackStepIcon("backward.end.fill")
                 }
+                .buttonStyle(.clayPressable)
+                .accessibilityLabel(tr("Previous sentence"))
 
                 Button {
                     model.togglePlayback()
                 } label: {
                     Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title2)
-                        .frame(width: 52, height: 44)
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(Clay.onColor)
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 60, height: 60)
+                        .background(Clay.cream, in: Circle())
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(studentPurple)
+                .buttonStyle(.clayPressable)
+                .accessibilityLabel(model.isPlaying ? tr("Pause") : tr("Play"))
 
                 Button {
                     model.moveSentence(by: 1)
                 } label: {
-                    Image(systemName: "forward.end.fill")
-                        .font(.title3)
-                        .frame(width: 44, height: 36)
+                    playbackStepIcon("forward.end.fill")
                 }
+                .buttonStyle(.clayPressable)
+                .accessibilityLabel(tr("Next sentence"))
 
                 Spacer()
 
@@ -1373,13 +1489,20 @@ struct ContentView: View {
                     Text("1.5×").tag(Float(1.5))
                 }
                 .labelsHidden()
+                .tint(.white)
                 .frame(width: 90)
             }
-            .buttonStyle(.bordered)
         }
-        .padding(14)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(studentPurple.opacity(0.12)) }
+        .padding(16)
+        .background(Clay.teal, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
+    }
+
+    private func playbackStepIcon(_ systemImage: String) -> some View {
+        Image(systemName: systemImage)
+            .font(.body.weight(.bold))
+            .foregroundStyle(.white)
+            .frame(width: 44, height: 44)
+            .background(.white.opacity(0.14), in: Circle())
     }
 
     // MARK: - Helpers
@@ -1388,35 +1511,48 @@ struct ContentView: View {
         title: String,
         subtitle: String,
         systemImage: String,
-        tint: Color,
+        accent: ClayAccent,
+        order: Int,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 16) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 24, weight: .semibold))
                     .frame(width: 56, height: 56)
-                    .background(tint, in: RoundedRectangle(cornerRadius: 16))
+                    .background(accent.on.opacity(0.14), in: RoundedRectangle(cornerRadius: Clay.Radius.lg, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(ink)
+                        .font(.clayTitle)
                     Text(subtitle)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.right")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(accent.fill)
+                    .frame(width: 36, height: 36)
+                    .background(accent.on, in: Circle())
             }
-            .padding(16)
-            .contentShape(Rectangle())
+            .foregroundStyle(accent.on)
+            .padding(20)
+            .background(accent.fill, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 18))
-        .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(tint.opacity(0.28), lineWidth: 1.5) }
+        .buttonStyle(.clayPressable)
+        .opacity(choicesHaveAppeared ? 1 : 0)
+        .offset(y: choicesHaveAppeared ? 0 : 18)
+        .animation(.spring(duration: 0.55, bounce: 0.3).delay(Double(order) * 0.07), value: choicesHaveAppeared)
+    }
+
+    private func accentIcon(_ systemImage: String, accent: ClayAccent) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 28, weight: .semibold))
+            .foregroundStyle(accent.on)
+            .frame(width: 72, height: 72)
+            .background(accent.fill, in: Circle())
     }
 
     private func uploadCard(
@@ -1424,30 +1560,25 @@ struct ContentView: View {
         title: String,
         message: String,
         buttonTitle: String,
-        tint: Color,
+        accent: ClayAccent,
         action: @escaping () -> Void
     ) -> some View {
         VStack(spacing: 14) {
-            Image(systemName: systemImage)
-                .font(.system(size: 32, weight: .semibold))
-                .foregroundStyle(tint)
+            accentIcon(systemImage, accent: accent)
             Text(title)
-                .font(.headline.weight(.bold))
-                .foregroundStyle(ink)
+                .font(.clayTitle)
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Clay.muted)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Button(buttonTitle, action: action)
-                .buttonStyle(.borderedProminent)
-                .tint(tint)
+                .buttonStyle(.clayPrimary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
         .padding(.horizontal, 16)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(tint.opacity(0.18)) }
+        .clayCard(Clay.surfaceCard, radius: Clay.Radius.xl, border: nil)
     }
 
     private func leaveDetailScreen() {
@@ -1547,7 +1678,7 @@ struct ContentView: View {
     private func savePhotoTextAndCreateSpeech() {
         let text = photoRecognizedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        model.importTypedText(text, suggestedName: suggestedFilename(for: text))
+        model.importTypedText(text, suggestedName: suggestedFilename(for: text), source: .photo)
     }
 
     private func saveRecordingAndStartDictation() {
@@ -1567,7 +1698,7 @@ struct ContentView: View {
             }
             try FileManager.default.moveItem(at: tempURL, to: dest)
             model.clearSavedRecording()
-            model.importAudio(.success([dest]))
+            model.importAudio(.success([dest]), source: .recording)
         } catch {
             model.reloadRecordingPreview()
             model.showError(.format("Could not save the recording: %@", error.localizedDescription))
@@ -1592,10 +1723,10 @@ struct ContentView: View {
     private func errorBanner(_ message: LocalizableText) -> some View {
         Label(localized(message), systemImage: "exclamationmark.triangle.fill")
             .font(.callout)
-            .foregroundStyle(.red)
-            .padding(10)
+            .foregroundStyle(Clay.errorText)
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+            .background(Clay.error.opacity(0.12), in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
     }
 
     private func tr(_ key: String, _ arguments: String...) -> String {
@@ -1910,9 +2041,6 @@ private struct ReviewRow: View {
     @ObservedObject var localization: AppLocalization
     let index: Int
     let sentence: TranscriptSentence
-    let studentPurple: Color
-    let cardFill: Color
-    let canvasFill: Color
 
     @State private var editedText = ""
     @FocusState private var isFocused: Bool
@@ -1930,16 +2058,18 @@ private struct ReviewRow: View {
             VStack(spacing: 6) {
                 Text("\(index + 1)")
                     .font(.caption.monospacedDigit().weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Clay.muted)
                 Button {
                     model.toggleReviewPlayback(at: index)
                 } label: {
                     Image(systemName: isPlayingThis ? "pause.fill" : "play.fill")
-                        .frame(width: 26, height: 24)
+                        .font(.footnote.weight(.bold))
+                        .foregroundStyle(Clay.onInk)
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 32, height: 32)
+                        .background(Clay.ink, in: Circle())
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(studentPurple)
-                .controlSize(.mini)
+                .buttonStyle(.clayPressable)
             }
 
             VStack(alignment: .leading, spacing: 7) {
@@ -1948,13 +2078,11 @@ private struct ReviewRow: View {
                     .lineLimit(1...8)
                     .textFieldStyle(.plain)
                     .font(.body)
-                    .padding(8)
-                    .background(canvasFill, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(status.isOverLimit ? Color.red : studentPurple.opacity(0.16),
-                                          lineWidth: status.isOverLimit ? 2 : 1)
-                    }
+                    .padding(10)
+                    .clayInput(
+                        border: status.isOverLimit ? Clay.error : (isFocused ? Clay.ink : Clay.hairline),
+                        lineWidth: status.isOverLimit ? 2 : 1
+                    )
                     .onAppear { editedText = sentence.text }
                     .onChange(of: editedText) { _, newValue in
                         model.updateReviewText(newValue, at: index)
@@ -1971,12 +2099,12 @@ private struct ReviewRow: View {
                              String(status.changedWords),
                              String(status.originalWordCount),
                              String(status.allowedChanges)))
-                            .foregroundStyle(status.isOverLimit ? Color.red : Color.secondary)
+                            .foregroundStyle(status.isOverLimit ? Clay.errorText : Clay.muted)
                     }
                     if status.isEmpty {
-                        Text(tr("A sentence can't be empty.")).foregroundStyle(.red)
+                        Text(tr("A sentence can't be empty.")).foregroundStyle(Clay.errorText)
                     } else if status.isOverLimit {
-                        Text(tr("Too many words changed. Revert or reduce the changes to continue.")).foregroundStyle(.red)
+                        Text(tr("Too many words changed. Revert or reduce the changes to continue.")).foregroundStyle(Clay.errorText)
                     }
                 }
                 .font(.caption)
@@ -2005,24 +2133,23 @@ private struct ReviewRow: View {
                         }
                     }
                 }
-                .font(.caption)
+                .font(.caption.weight(.semibold))
                 .buttonStyle(.borderless)
-                .tint(studentPurple)
+                .tint(Clay.ink)
 
                 if isEdited {
                     Text(tr("Recognized: %@", sentence.originalText))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Clay.muted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
         .padding(12)
-        .background(status.isOverLimit ? Color.red.opacity(0.08) : cardFill, in: RoundedRectangle(cornerRadius: 14))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(status.isOverLimit ? Color.red.opacity(0.55) : studentPurple.opacity(0.13))
-        }
+        .clayCard(
+            status.isOverLimit ? Clay.error.opacity(0.1) : Clay.surfaceCard,
+            border: status.isOverLimit ? Clay.error : nil
+        )
     }
 }
 
@@ -2116,6 +2243,7 @@ private struct SettingsSheet: View {
                     folderErrorMessage = localization.string(.format("Could not use this folder: %@", error.localizedDescription))
                 }
             }
+            .onChange(of: appearance) { _, newValue in newValue.apply() }
             .navigationTitle(localization.string("Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

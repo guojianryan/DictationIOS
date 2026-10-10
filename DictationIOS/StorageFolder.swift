@@ -16,7 +16,7 @@ final class StorageFolder: ObservableObject {
     private var isAccessingURL = false
 
     private static let bookmarkKey = "storageFolderBookmark"
-    private static let appFolderName = "EchoLingo"
+    nonisolated private static let appFolderName = "EchoLingo"
     private static let subfolders = ["speech", "recordings", "sessions"]
 
     private init() {
@@ -40,7 +40,7 @@ final class StorageFolder: ObservableObject {
         return resolved
     }
 
-    private static var documentsURL: URL {
+    nonisolated private static var documentsURL: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
@@ -55,13 +55,31 @@ final class StorageFolder: ObservableObject {
 
     /// The EchoLingo folder inside the chosen folder, which holds all of the app's subfolders.
     /// If the user picked a folder that is already called EchoLingo, it is used as is.
-    private static func appFolder(in folder: URL) -> URL {
+    nonisolated private static func appFolder(in folder: URL) -> URL {
         if folder.lastPathComponent == appFolderName { return folder }
         return folder.appendingPathComponent(appFolderName, isDirectory: true)
     }
 
     func subfolder(_ name: String) -> URL {
-        Self.appFolder(in: url).appendingPathComponent(name, isDirectory: true)
+        Self.subfolder(name, in: chosenURL)
+    }
+
+    /// The subfolder for a given choice of folder (`nil` is the Documents folder), which can
+    /// differ from the current one while a change of folder is under way.
+    nonisolated static func subfolder(_ name: String, in folder: URL?) -> URL {
+        appFolder(in: folder ?? documentsURL).appendingPathComponent(name, isDirectory: true)
+    }
+
+    /// The path of `fileURL` inside the EchoLingo folder, or `nil` when the file is somewhere else.
+    func relativePath(of fileURL: URL) -> String? {
+        let folderPath = Self.appFolder(in: url).standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        guard filePath.hasPrefix(folderPath + "/") else { return nil }
+        return String(filePath.dropFirst(folderPath.count + 1))
+    }
+
+    func fileURL(forRelativePath path: String) -> URL {
+        Self.appFolder(in: url).appendingPathComponent(path)
     }
 
     /// Remembers `newURL` (from a folder picker) as the place to save files, and moves files
