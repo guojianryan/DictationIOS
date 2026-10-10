@@ -1,21 +1,27 @@
 import SwiftUI
 import UIKit
 
+/// Whether the "Cool" theme is selected. Read straight from the stored setting so that colors
+/// resolve correctly the moment the setting changes, before any view tree has been updated.
+private var isCoolTheme: Bool {
+    UserDefaults.standard.string(forKey: AppAppearance.storageKey) == AppAppearance.cool.rawValue
+}
+
 /// The app's design tokens and shared components, following the Clay design system in
 /// `awesome-design-md/design-md/clay/DESIGN.md`: a warm cream canvas, near-black ink and
 /// buttons, rounded display type, and saturated single-color cards.
 enum Clay {
     // Surfaces and text adapt to dark mode; the design's dark surfaces are teal-tinted.
-    static let canvas = dynamic(light: 0xFFFAF0, dark: 0x0A1A1A)
-    static let surfaceSoft = dynamic(light: 0xFAF5E8, dark: 0x122424)
-    static let surfaceCard = dynamic(light: 0xF5F0E0, dark: 0x1A2A2A)
-    static let surfaceStrong = dynamic(light: 0xEBE6D6, dark: 0x2A3C3C)
-    static let hairline = dynamic(light: 0xE5E0D2, dark: 0x2E4040)
-    static let ink = dynamic(light: 0x0A0A0A, dark: 0xFFFAF0)
-    static let body = dynamic(light: 0x3A3A3A, dark: 0xD9D4C7)
-    static let muted = dynamic(light: 0x6A6A6A, dark: 0xA0A0A0)
+    static let canvas = dynamic(light: 0xFFFAF0, dark: 0x0A1A1A, cool: 0xD6E6F7)
+    static let surfaceSoft = dynamic(light: 0xFAF5E8, dark: 0x122424, cool: 0xCADDF2)
+    static let surfaceCard = dynamic(light: 0xF5F0E0, dark: 0x1A2A2A, cool: 0xBBD2EC)
+    static let surfaceStrong = dynamic(light: 0xEBE6D6, dark: 0x2A3C3C, cool: 0xA5C2E3)
+    static let hairline = dynamic(light: 0xE5E0D2, dark: 0x2E4040, cool: 0x94B4D8)
+    static let ink = dynamic(light: 0x0A0A0A, dark: 0xFFFAF0, cool: 0x0A1F3D)
+    static let body = dynamic(light: 0x3A3A3A, dark: 0xD9D4C7, cool: 0x24405F)
+    static let muted = dynamic(light: 0x6A6A6A, dark: 0xA0A0A0, cool: 0x465F80)
     /// Text on an ink-filled (primary) button.
-    static let onInk = dynamic(light: 0xFFFFFF, dark: 0x0A0A0A)
+    static let onInk = dynamic(light: 0xFFFFFF, dark: 0x0A0A0A, cool: 0xFFFFFF)
 
     // Brand colors are the same in both appearances.
     static let pink = Color(hex: 0xFF4D8B)
@@ -31,8 +37,8 @@ enum Clay {
     static let success = Color(hex: 0x22C55E)
     static let error = Color(hex: 0xEF4444)
     // The semantic colors, darkened (or lightened in dark mode) so they stay readable as text.
-    static let successText = dynamic(light: 0x15803D, dark: 0x4ADE80)
-    static let errorText = dynamic(light: 0xDC2626, dark: 0xF87171)
+    static let successText = dynamic(light: 0x15803D, dark: 0x4ADE80, cool: 0x15803D)
+    static let errorText = dynamic(light: 0xDC2626, dark: 0xF87171, cool: 0xDC2626)
 
     enum Radius {
         static let sm: CGFloat = 8
@@ -41,9 +47,10 @@ enum Clay {
         static let xl: CGFloat = 24
     }
 
-    private static func dynamic(light: UInt32, dark: UInt32) -> Color {
+    private static func dynamic(light: UInt32, dark: UInt32, cool: UInt32) -> Color {
         Color(UIColor { traits in
-            UIColor(hex: traits.userInterfaceStyle == .dark ? dark : light)
+            if traits.userInterfaceStyle == .dark { return UIColor(hex: dark) }
+            return UIColor(hex: isCoolTheme ? cool : light)
         })
     }
 }

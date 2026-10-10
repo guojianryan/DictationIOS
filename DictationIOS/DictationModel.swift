@@ -514,7 +514,7 @@ final class DictationModel: ObservableObject {
                 transcribePendingAudio()
             }
         case .failure(let error):
-            errorMessage = .format("Could not open the selected audio file: %@", error.localizedDescription)
+            errorMessage = "Could not open the selected audio file."
         }
     }
 
@@ -524,7 +524,7 @@ final class DictationModel: ObservableObject {
             guard let url = urls.first else { return }
             importTextFile(at: url)
         case .failure(let error):
-            errorMessage = .format("Could not open the selected text file: %@", error.localizedDescription)
+            errorMessage = "Could not open the selected text file."
         }
     }
 
@@ -555,14 +555,14 @@ final class DictationModel: ObservableObject {
         do {
             try FileManager.default.createDirectory(at: speechDir, withIntermediateDirectories: true)
         } catch {
-            errorMessage = .format("Could not prepare speech folder: %@", error.localizedDescription)
+            errorMessage = "Could not prepare speech folder."
             return
         }
         let textURL = speechDir.appendingPathComponent(suggestedName).appendingPathExtension("txt")
         do {
             try StorageFolder.coordinatedWrite(Data(text.utf8), to: textURL)
         } catch {
-            errorMessage = .format("Could not save the text: %@", error.localizedDescription)
+            errorMessage = "Could not save the text."
             return
         }
         importTextFile(at: textURL, source: source)
@@ -658,7 +658,7 @@ final class DictationModel: ObservableObject {
             savePracticeSession()
         } catch {
             errorMessage = (error as? DictationError)?.localizable
-                ?? .format("Could not load the saved practice data: %@", error.localizedDescription)
+                ?? "Could not load the saved practice data."
             releasePendingAudioAccess()
         }
     }
@@ -1026,7 +1026,7 @@ final class DictationModel: ObservableObject {
             try session.setCategory(.record, mode: .default, options: [])
             try session.setActive(true)
         } catch {
-            errorMessage = .format("Could not activate audio session: %@", error.localizedDescription)
+            errorMessage = "Could not activate audio session."
             return
         }
 
@@ -1066,7 +1066,7 @@ final class DictationModel: ObservableObject {
                 }
             }
         } catch {
-            errorMessage = .format("Recording could not be started: %@", error.localizedDescription)
+            errorMessage = "Recording could not be started."
         }
     }
 
@@ -1099,7 +1099,7 @@ final class DictationModel: ObservableObject {
             try? FileManager.default.removeItem(at: url)
             recordingPreviewURL = nil
             hasRecordingPreview = false
-            errorMessage = .format("The recording could not be played: %@", error.localizedDescription)
+            errorMessage = "The recording could not be played."
         }
     }
 
@@ -1816,7 +1816,7 @@ final class DictationModel: ObservableObject {
             }
             recordRecentPractice(for: activeAudioURL)
         } catch {
-            errorMessage = .format("Could not save practice data: %@", error.localizedDescription)
+            errorMessage = "Could not save practice data."
         }
     }
 
@@ -2278,7 +2278,7 @@ final class DictationModel: ObservableObject {
             punctuationStatus = "Punctuation checked locally with Apple Intelligence. Suggestions that changed words were discarded."
         } catch {
             guard !Task.isCancelled else { return }
-            punctuationStatus = .format("Punctuation unchanged — local correction failed: %@", error.localizedDescription)
+            punctuationStatus = "Punctuation unchanged — local correction failed."
         }
     }
 
@@ -2428,7 +2428,7 @@ final class DictationModel: ObservableObject {
             savePracticeSession()
         } catch {
             guard requestID == activeTranslationRequest, !Task.isCancelled else { return }
-            translationStatus = .format("Local translation unavailable: %@", error.localizedDescription)
+            translationStatus = "Local translation unavailable."
             savePracticeSession()
         }
     }
@@ -3173,6 +3173,6 @@ extension LocalizableText {
         if let dictationError = error as? DictationError {
             return dictationError.localizable
         }
-        return .verbatim(error.localizedDescription)
+        return "Something went wrong. Please try again."
     }
 }

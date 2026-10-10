@@ -112,7 +112,7 @@ final class SpeakingPracticeModel: ObservableObject {
             engine.inputNode.removeTap(onBus: 0)
             recordingFile = nil
             deleteRecording()
-            errorMessage = .format("Recording could not be started: %@", error.localizedDescription)
+            errorMessage = "Recording could not be started."
             return
         }
 

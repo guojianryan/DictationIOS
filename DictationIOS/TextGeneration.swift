@@ -1,11 +1,22 @@
 import FoundationModels
 import SwiftUI
 
+/// Chinese and Japanese: the languages the on-device model handles worst.
+func isAsianLanguage(_ languageIdentifier: String) -> Bool {
+    ["zh", "ja"].contains(Locale(identifier: languageIdentifier).language.languageCode?.identifier ?? "")
+}
+
 /// The CEFR level a generated practice text is written at.
 enum TextLevel: String, CaseIterable, Identifiable {
     case a1 = "A1", a2 = "A2", b1 = "B1", b2 = "B2", c1 = "C1", c2 = "C2"
 
     var id: String { rawValue }
+
+    /// The levels the on-device model can write reliably in `languageIdentifier`. It drifts into
+    /// English and fails to stop at advanced levels in Chinese and Japanese, so those stop at B1.
+    static func available(for languageIdentifier: String) -> [TextLevel] {
+        isAsianLanguage(languageIdentifier) ? [.a1, .a2, .b1] : allCases
+    }
 
     var guidance: String {
         switch self {
@@ -34,29 +45,110 @@ enum TextLength: String, CaseIterable, Identifiable {
         case .long: "about 12 to 15 sentences"
         }
     }
+
+    /// Hard ceiling on the generated text, in characters, so a runaway generation is cut short.
+    var maxCharacters: Int {
+        switch self {
+        case .short: 450
+        case .medium: 750
+        case .long: 1000
+        }
+    }
+
+    /// Safety limit on generated tokens; the character ceiling normally trips first.
+    var maxTokens: Int {
+        switch self {
+        case .short: 500
+        case .medium: 1100
+        case .long: 1500
+        }
+    }
 }
 
 @Generable
 private struct GeneratedPracticeText {
-    @Guide(description: "The practice text only: plain prose, no title, no list, no markdown, no commentary.")
+    @Guide(description: "The practice text only: plain prose, no title, no list, no markdown, no HTML, no furigana, no commentary, and never mention the level, the language or these instructions.")
     var text: String
+}
+
+@Generable
+private struct GeneratedTitle {
+    @Guide(description: "A short, meaningful title for the text, in the same language as the text: plain words only, no quotes, no punctuation at the end.")
+    var title: String
 }
 
 enum TextGenerationError: LocalizedError {
     case unavailable
     case unsupportedLanguage(String)
     case empty
+    case levelUnsupported
 
     var errorDescription: String? {
         switch self {
         case .unavailable: "Apple Intelligence is not available on this device."
         case .unsupportedLanguage(let name): "Apple Intelligence does not support \(name) on this device."
         case .empty: "No text was generated. Please try again."
+        case .levelUnsupported: "This level is not available for this language."
         }
     }
 }
 
 enum TextGenerator {
+    private static func makeSession(model: SystemLanguageModel, languageName: String) -> LanguageModelSession {
+        LanguageModelSession(
+            model: model,
+            instructions: """
+            You write short texts for language learners to practice dictation. Write only in \
+            \(languageName). Match the requested CEFR level exactly. Write natural, correct, \
+            self-contained prose that reads well aloud, with proper punctuation and no title, \
+            list, markdown, HTML, furigana, or translation. Never mention the CEFR level, the requested length, or these \
+            instructions in the text.
+            """
+        )
+    }
+
+    /// Removes HTML the model sometimes emits, e.g. `<ruby>漢字<rt>かんじ</rt></ruby>`, keeping
+    /// the base text and dropping the readings.
+    static func stripMarkup(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "<r[tp]>.*?</r[tp]>", with: "", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: "<[^>]*(>|$)", with: "", options: .regularExpression)
+    }
+
+    /// A short title summarizing `text`, in the text's own language, or nil if the on-device model
+    /// is unavailable, fails, or takes longer than `timeout` seconds.
+    static func title(for text: String, timeout: Double = 8) async -> String? {
+        let model = SystemLanguageModel.default
+        guard model.isAvailable else { return nil }
+        return await withTaskGroup(of: String?.self) { group in
+            group.addTask {
+                let session = LanguageModelSession(
+                    model: model,
+                    instructions: "You write short, meaningful titles for texts. Reply in the language of the text."
+                )
+                let prompt = "Write a title of at most 6 words for this text:\n\n\(text.prefix(1500))"
+                let options = GenerationOptions(maximumResponseTokens: 40)
+                let response = try? await session.respond(to: prompt, generating: GeneratedTitle.self, options: options)
+                return response?.content.title
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(timeout))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    /// Loads the model ahead of the first request so it starts generating sooner.
+    static func prewarm(languageIdentifier: String) {
+        let model = SystemLanguageModel.default
+        guard model.isAvailable else { return }
+        let languageName = Locale(identifier: "en").localizedString(forIdentifier: languageIdentifier) ?? languageIdentifier
+        makeSession(model: model, languageName: languageName).prewarm()
+    }
+
     /// Generates a practice text in `languageIdentifier`. To replace an earlier text, pass it as
     /// `previousText` together with the user's `feedback` on it.
     static func generate(
@@ -65,23 +157,19 @@ enum TextGenerator {
         length: TextLength,
         topic: String,
         previousText: String? = nil,
-        feedback: String = ""
+        feedback: String = "",
+        onPartial: @MainActor (String) -> Void = { _ in }
     ) async throws -> String {
         let model = SystemLanguageModel.default
         guard model.isAvailable else { throw TextGenerationError.unavailable }
+        guard TextLevel.available(for: languageIdentifier).contains(level) else {
+            throw TextGenerationError.levelUnsupported
+        }
         let locale = Locale(identifier: languageIdentifier)
         let languageName = Locale(identifier: "en").localizedString(forIdentifier: languageIdentifier) ?? languageIdentifier
         guard model.supportsLocale(locale) else { throw TextGenerationError.unsupportedLanguage(languageName) }
 
-        let session = LanguageModelSession(
-            model: model,
-            instructions: """
-            You write short texts for language learners to practice dictation. Write only in \
-            \(languageName). Match the requested CEFR level exactly. Write natural, correct, \
-            self-contained prose that reads well aloud, with proper punctuation and no title, \
-            list, markdown, or translation.
-            """
-        )
+        let session = makeSession(model: model, languageName: languageName)
 
         var prompt = """
         Write a text in \(languageName) at CEFR level \(level.rawValue), using \(level.guidance). \
@@ -95,8 +183,30 @@ enum TextGenerator {
             if !trimmedFeedback.isEmpty { prompt += " Apply this feedback: \(trimmedFeedback)" }
         }
 
-        let response = try await session.respond(to: prompt, generating: GeneratedPracticeText.self)
-        let text = response.content.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let maxCharacters = length.maxCharacters
+        let stream = session.streamResponse(
+            to: prompt,
+            generating: GeneratedPracticeText.self,
+            options: GenerationOptions(maximumResponseTokens: length.maxTokens)
+        )
+        var latest = ""
+        for try await snapshot in stream {
+            guard let raw = snapshot.content.text else { continue }
+            let partial = stripMarkup(raw)
+            latest = partial
+            if partial.count > maxCharacters { break }
+            await onPartial(partial)
+        }
+        var text = latest.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.count > maxCharacters {
+            text = String(text.prefix(maxCharacters))
+        }
+        // A capped or truncated text should still end on a full sentence.
+        if text.count >= maxCharacters || latest.count > maxCharacters,
+           let end = text.lastIndex(where: { ".!?。！？".contains($0) }) {
+            text = String(text[...end])
+        }
+        await onPartial(text)
         guard !text.isEmpty else { throw TextGenerationError.empty }
         return text
     }
@@ -122,7 +232,7 @@ struct GeneratedTextCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(tr("Level")).clayEyebrow()
                 ClayTabs(
-                    items: TextLevel.allCases.map { ClayTabItem(value: $0, title: $0.rawValue) },
+                    items: TextLevel.available(for: languageIdentifier).map { ClayTabItem(value: $0, title: $0.rawValue) },
                     selection: $level,
                     compact: true
                 )
@@ -141,7 +251,7 @@ struct GeneratedTextCard: View {
                 .padding(12)
                 .clayInput()
 
-            if generatedText.isEmpty {
+            if generatedText.isEmpty && !isGenerating {
                 generateButton(title: tr("Generate Text"), systemImage: "sparkles", kind: .primary)
             } else {
                 TextEditor(text: $generatedText)
@@ -157,7 +267,16 @@ struct GeneratedTextCard: View {
                     .padding(12)
                     .clayInput()
 
-                generateButton(title: tr("Regenerate"), systemImage: "arrow.clockwise", kind: .secondary)
+                generateButton(
+                    title: tr(generatedText.isEmpty ? "Generate Text" : "Regenerate"),
+                    systemImage: generatedText.isEmpty ? "sparkles" : "arrow.clockwise",
+                    kind: .secondary
+                )
+
+                if isGenerating {
+                    Button(tr("Cancel"), role: .cancel) { cancelGeneration() }
+                        .frame(maxWidth: .infinity)
+                }
 
                 Button {
                     let text = generatedText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -185,7 +304,12 @@ struct GeneratedTextCard: View {
         }
         .padding(16)
         .clayCard(Clay.surfaceCard, border: nil)
-        .onDisappear { task?.cancel() }
+        .onAppear {
+            clampLevel()
+            TextGenerator.prewarm(languageIdentifier: languageIdentifier)
+        }
+        .onChange(of: languageIdentifier) { _, _ in clampLevel() }
+        .onDisappear { cancelGeneration() }
     }
 
     private func generateButton(title: String, systemImage: String, kind: ClayButtonStyle.Kind) -> some View {
@@ -202,6 +326,17 @@ struct GeneratedTextCard: View {
         .disabled(isGenerating)
     }
 
+    private func clampLevel() {
+        let available = TextLevel.available(for: languageIdentifier)
+        if !available.contains(level), let highest = available.last { level = highest }
+    }
+
+    private func cancelGeneration() {
+        task?.cancel()
+        task = nil
+        isGenerating = false
+    }
+
     private func generate() {
         isGenerating = true
         errorMessage = nil
@@ -215,16 +350,23 @@ struct GeneratedTextCard: View {
                     length: length,
                     topic: topic,
                     previousText: previous,
-                    feedback: currentFeedback
+                    feedback: currentFeedback,
+                    onPartial: { partial in
+                        if !Task.isCancelled { generatedText = partial }
+                    }
                 )
                 guard !Task.isCancelled else { return }
                 generatedText = text
                 feedback = ""
             } catch {
                 guard !Task.isCancelled else { return }
-                errorMessage = error.localizedDescription
+                generatedText = previous
+                // Only our own messages are shown; system errors are never exposed.
+                errorMessage = (error as? TextGenerationError)?.errorDescription
+                    ?? tr("The text could not be generated. Please try again.")
             }
             isGenerating = false
+            task = nil
         }
     }
 }

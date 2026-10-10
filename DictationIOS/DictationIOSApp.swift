@@ -2,9 +2,9 @@ import SwiftUI
 import UIKit
 
 enum AppAppearance: String, CaseIterable, Identifiable {
-    case system
-    case light
     case dark
+    case light
+    case cool
 
     static let storageKey = "appAppearance"
 
@@ -12,30 +12,28 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .system: "System"
-        case .light: "Light"
+        case .light: "Warm"
         case .dark: "Dark"
+        case .cool: "Cool"
         }
     }
 
     var colorScheme: ColorScheme? {
         switch self {
-        case .system: nil
-        case .light: .light
+        case .light, .cool: .light
         case .dark: .dark
         }
     }
 
     var interfaceStyle: UIUserInterfaceStyle {
         switch self {
-        case .system: .unspecified
-        case .light: .light
+        case .light, .cool: .light
         case .dark: .dark
         }
     }
 
     /// Sets the style on every window. Unlike `preferredColorScheme`, this reliably reaches
-    /// sheets and switches back from dark to light (or to the system setting).
+    /// sheets and switches back from dark to light.
     @MainActor
     func apply() {
         for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
@@ -50,11 +48,12 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
 @main
 struct DictationIOSApp: App {
-    @AppStorage(AppAppearance.storageKey) private var appearance: AppAppearance = .system
+    @AppStorage(AppAppearance.storageKey) private var appearance: AppAppearance = .light
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(appearance.colorScheme)
                 .onAppear { appearance.apply() }
                 .onChange(of: appearance) { _, newValue in newValue.apply() }
         }

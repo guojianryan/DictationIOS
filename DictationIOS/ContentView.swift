@@ -37,9 +37,10 @@ struct ContentView: View {
     @State private var textTab: TextSetupTab = .type
     @State private var audioTab: AudioSetupTab = .upload
     @State private var typedText = ""
+    @State private var isNamingText = false
     @State private var showsOriginalText = true
     @State private var showsTranslation = true
-    @State private var showsSettings = false
+    @State private var showsSettings = !UserDefaults.standard.bool(forKey: "hasShownInitialSettings")
     @State private var showsGradePopup = false
     @State private var choicesHaveAppeared = false
     @State private var recentRowHeight: CGFloat = 86
@@ -54,7 +55,11 @@ struct ContentView: View {
     @State private var photoErrorMessage: LocalizableText?
     @State private var showsCameraCapture = false
     @State private var pendingCropImage: UIImage?
+    @AppStorage(AppAppearance.storageKey) private var appearance: AppAppearance = .light
     @FocusState private var isAnswerFieldFocused: Bool
+    /// Whether the playback bar floats above the keyboard while typing. Otherwise it stays in the
+    /// page and the page scrolls to keep it visible.
+    @AppStorage("floatsPlaybackWhileTyping") private var floatsPlayback = true
 
     private var typedTextIsEmpty: Bool {
         typedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -88,6 +93,8 @@ struct ContentView: View {
         }
         .foregroundStyle(Clay.ink)
         .tint(Clay.ink)
+        // Rebuild the screen on a theme change so every color is resolved again.
+        .id(appearance)
         .animation(.spring(duration: 0.4, bounce: 0.2), value: setupChoice)
         .sensoryFeedback(trigger: model.gradeCheckCount) { _, _ in
             model.practiceGradeScore == 100 ? .success : .impact
@@ -96,7 +103,9 @@ struct ContentView: View {
         .translationTask(model.translationConfiguration) { session in
             await model.translate(using: session)
         }
-        .sheet(isPresented: $showsSettings) {
+        .sheet(isPresented: $showsSettings, onDismiss: {
+            UserDefaults.standard.set(true, forKey: "hasShownInitialSettings")
+        }) {
             SettingsSheet(model: model, localization: localization)
         }
         .alert(tr("Saved practice found"), isPresented: $model.isSavedSessionPromptPresented) {
@@ -149,7 +158,7 @@ struct ContentView: View {
                     }
                     handlePickedPhoto(image)
                 } catch {
-                    photoErrorMessage = .format("Could not read the photo: %@", error.localizedDescription)
+                    photoErrorMessage = "Could not read the photo."
                 }
             }
         }
@@ -477,7 +486,7 @@ struct ContentView: View {
                         languageIdentifier: model.selectedSpeechLocale,
                         tr: { tr($0) }
                     ) { text in
-                        model.importTypedText(text, suggestedName: suggestedFilename(for: text))
+                        importText(text)
                     }
                 } else {
                     uploadCard(
@@ -938,16 +947,37 @@ struct ContentView: View {
                         }
                     }
 
-                    playbackControls
+                    if !playbackFloats {
+                        playbackControls()
+                            .id("playbackControls")
+                    }
                 }
                 .padding(16)
+            }
+            // While typing, keep play within reach just above the keyboard.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if playbackFloats {
+                    playbackControls(compact: true)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                }
             }
             .onChange(of: isAnswerFieldFocused) { _, focused in
                 guard focused else { return }
                 Task {
                     try? await Task.sleep(for: .milliseconds(300))
                     withAnimation(.easeOut(duration: 0.25)) {
-                        proxy.scrollTo("answerField", anchor: .bottom)
+                        // Floating: show the answer field. Docked: show the playback bar under it.
+                        proxy.scrollTo(floatsPlayback ? "answerField" : "playbackControls", anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: floatsPlayback) { _, _ in
+                guard isAnswerFieldFocused else { return }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        proxy.scrollTo(floatsPlayback ? "answerField" : "playbackControls", anchor: .bottom)
                     }
                 }
             }
@@ -1433,23 +1463,27 @@ struct ContentView: View {
 
     // MARK: - Playback Controls
 
-    private var playbackControls: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Text(Self.timeString(model.currentTime))
-                    .monospacedDigit()
-                Slider(value: Binding(
-                    get: { model.currentTime },
-                    set: { model.seek(to: $0) }
-                ), in: 0...max(model.duration, 1))
-                .tint(Clay.ochre)
-                Text(Self.timeString(model.duration))
-                    .monospacedDigit()
-            }
-            .font(.caption)
-            .foregroundStyle(.white.opacity(0.75))
+    private var playbackFloats: Bool { isAnswerFieldFocused && floatsPlayback }
 
-            HStack(spacing: 12) {
+    private func playbackControls(compact: Bool = false) -> some View {
+        VStack(spacing: 12) {
+            if !compact {
+                HStack(spacing: 8) {
+                    Text(Self.timeString(model.currentTime))
+                        .monospacedDigit()
+                    Slider(value: Binding(
+                        get: { model.currentTime },
+                        set: { model.seek(to: $0) }
+                    ), in: 0...max(model.duration, 1))
+                    .tint(Clay.ochre)
+                    Text(Self.timeString(model.duration))
+                        .monospacedDigit()
+                }
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.75))
+            }
+
+            HStack(spacing: 8) {
                 Button {
                     model.moveSentence(by: -1)
                 } label: {
@@ -1491,9 +1525,21 @@ struct ContentView: View {
                 .labelsHidden()
                 .tint(.white)
                 .frame(width: 90)
+
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) { floatsPlayback.toggle() }
+                } label: {
+                    Image(systemName: floatsPlayback ? "pin.slash.fill" : "pin.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 28, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(floatsPlayback ? tr("Keep controls in the page while typing") : tr("Float controls above the keyboard while typing"))
             }
         }
-        .padding(16)
+        .padding(compact ? 10 : 16)
         .background(Clay.teal, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
     }
 
@@ -1597,7 +1643,7 @@ struct ContentView: View {
     private func saveTypedTextAndCreateSpeech() {
         let text = typedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        model.importTypedText(text, suggestedName: suggestedFilename(for: text))
+        importText(text)
     }
 
     private static var cameraIsAvailable: Bool {
@@ -1644,7 +1690,7 @@ struct ContentView: View {
                 rawText = try await Self.performOCR(cgImage: cgImage, orientation: orientation)
             } catch {
                 isRecognizingPhotoText = false
-                photoErrorMessage = .format("Could not read the photo: %@", error.localizedDescription)
+                photoErrorMessage = "Could not read the photo."
                 return
             }
             let trimmedRaw = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1678,7 +1724,7 @@ struct ContentView: View {
     private func savePhotoTextAndCreateSpeech() {
         let text = photoRecognizedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        model.importTypedText(text, suggestedName: suggestedFilename(for: text), source: .photo)
+        importText(text, source: .photo)
     }
 
     private func saveRecordingAndStartDictation() {
@@ -1701,7 +1747,7 @@ struct ContentView: View {
             model.importAudio(.success([dest]), source: .recording)
         } catch {
             model.reloadRecordingPreview()
-            model.showError(.format("Could not save the recording: %@", error.localizedDescription))
+            model.showError("Could not save the recording.")
         }
     }
 
@@ -1737,13 +1783,33 @@ struct ContentView: View {
         localization.string(text)
     }
 
-    private func suggestedFilename(for text: String) -> String {
+    /// A meaningful title for `text` from the on-device model, falling back to its first line.
+    private func suggestedFilename(for text: String) async -> String {
+        if let title = await TextGenerator.title(for: text) {
+            let cleaned = sanitizedFilename(title)
+            if !cleaned.isEmpty { return cleaned }
+        }
         let firstLine = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
+        let cleaned = sanitizedFilename(firstLine)
+        return cleaned.isEmpty ? tr("Practice") : cleaned
+    }
+
+    private func sanitizedFilename(_ text: String) -> String {
         let allowed = CharacterSet.alphanumerics.union(.whitespaces).union(CharacterSet(charactersIn: "-"))
-        let cleaned = String(firstLine.unicodeScalars.filter { allowed.contains($0) })
+        let cleaned = String(text.unicodeScalars.filter { allowed.contains($0) })
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        let limited = String(cleaned.prefix(40)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return limited.isEmpty ? tr("Practice") : limited
+        return String(cleaned.prefix(40)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Names `text` with an automatic title, then creates speech from it.
+    private func importText(_ text: String, source: PracticeSource = .typedText) {
+        guard !isNamingText else { return }
+        isNamingText = true
+        Task {
+            let name = await suggestedFilename(for: text)
+            isNamingText = false
+            model.importTypedText(text, suggestedName: name, source: source)
+        }
     }
 
     private static func timeString(_ time: TimeInterval) -> String {
@@ -2159,7 +2225,7 @@ private struct SettingsSheet: View {
     @ObservedObject var model: DictationModel
     @ObservedObject var localization: AppLocalization
     @ObservedObject private var storageFolder = StorageFolder.shared
-    @AppStorage(AppAppearance.storageKey) private var appearance: AppAppearance = .system
+    @AppStorage(AppAppearance.storageKey) private var appearance: AppAppearance = .light
     @Environment(\.dismiss) private var dismiss
     @State private var showsFolderPicker = false
     @State private var folderErrorMessage: String?
@@ -2167,40 +2233,62 @@ private struct SettingsSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Picker(localization.string("App language"), selection: $localization.appLanguage) {
-                        Text(localization.string("System")).tag("system")
-                        ForEach(AppLocalization.choices, id: \.id) { choice in
-                            Text(choice.title).tag(choice.id)
+                Section(localization.string("Theme")) {
+                    Group {
+                        Picker(localization.string("Theme"), selection: Binding(
+                            get: { appearance },
+                            set: { newValue in
+                                appearance = newValue
+                                newValue.apply()
+                            }
+                        )) {
+                            ForEach(AppAppearance.allCases) { option in
+                                Text(localization.string(LocalizableText(key: option.title))).tag(option)
+                            }
                         }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
                     }
-                    Picker(localization.string("Theme"), selection: $appearance) {
-                        ForEach(AppAppearance.allCases) { option in
-                            Text(localization.string(LocalizableText(key: option.title))).tag(option)
-                        }
-                    }
+                    .listRowBackground(Clay.surfaceCard)
                 }
                 Section {
-                    Picker(localization.string("Default spoken language"), selection: $model.defaultSpeechLocale) {
-                        ForEach(model.speechLanguages) { language in
-                            Text(localization.languageName(for: language.identifier)).tag(language.identifier)
+                    Group {
+                        Picker(localization.string("App language"), selection: $localization.appLanguage) {
+                            Text(localization.string("System")).tag("system")
+                            ForEach(AppLocalization.choices, id: \.id) { choice in
+                                Text(choice.title).tag(choice.id)
+                            }
                         }
                     }
-                    Picker(localization.string("Default translation language"), selection: $model.defaultTranslationLanguage) {
-                        ForEach(TranslationLanguage.supported) { language in
-                            Text(localization.languageName(for: language.code)).tag(language.code)
+                    .listRowBackground(Clay.surfaceCard)
+                }
+                Section {
+                    Group {
+                        Picker(localization.string("Default spoken language"), selection: $model.defaultSpeechLocale) {
+                            ForEach(model.speechLanguages) { language in
+                                Text(localization.languageName(for: language.identifier)).tag(language.identifier)
+                            }
+                        }
+                        Picker(localization.string("Default translation language"), selection: $model.defaultTranslationLanguage) {
+                            ForEach(TranslationLanguage.supported) { language in
+                                Text(localization.languageName(for: language.code)).tag(language.code)
+                            }
                         }
                     }
+                    .listRowBackground(Clay.surfaceCard)
                 } footer: {
                     Text(localization.string("Defaults are used when you start. A language you pick while adding text or audio applies only to that session."))
                 }
                 Section {
-                    Picker(localization.string("Voice"), selection: voiceSelection) {
-                        Text(localization.string("Automatic")).tag(String?.none)
-                        ForEach(availableVoices, id: \.identifier) { voice in
-                            Text(voiceLabel(voice)).tag(String?.some(voice.identifier))
+                    Group {
+                        Picker(localization.string("Voice"), selection: voiceSelection) {
+                            Text(localization.string("Automatic")).tag(String?.none)
+                            ForEach(availableVoices, id: \.identifier) { voice in
+                                Text(voiceLabel(voice)).tag(String?.some(voice.identifier))
+                            }
                         }
                     }
+                    .listRowBackground(Clay.surfaceCard)
                 } footer: {
                     Text(localization.string(.format(
                         "The voice used to read %@. Change the spoken language above to choose a voice for a different language.",
@@ -2208,28 +2296,37 @@ private struct SettingsSheet: View {
                     )))
                 }
                 Section {
-                    LabeledContent(localization.string("Folder")) {
-                        Text(storageFolder.displayName ?? localization.string("Documents (default)"))
-                    }
-                    Button(localization.string("Choose Folder")) {
-                        showsFolderPicker = true
-                    }
-                    if storageFolder.chosenURL != nil {
-                        Button(localization.string("Use Documents Folder")) {
-                            storageFolder.useDocumentsFolder()
-                            folderErrorMessage = nil
+                    Group {
+                        LabeledContent(localization.string("Folder")) {
+                            Text(storageFolder.displayName ?? localization.string("Documents (default)"))
+                        }
+                        Button(localization.string("Choose Folder")) {
+                            showsFolderPicker = true
+                        }
+                        if storageFolder.chosenURL != nil {
+                            Button(localization.string("Use Documents Folder")) {
+                                storageFolder.useDocumentsFolder()
+                                folderErrorMessage = nil
+                            }
                         }
                     }
+                    .listRowBackground(Clay.surfaceCard)
                 } header: {
                     Text(localization.string("Saved files"))
                 } footer: {
                     if let folderErrorMessage {
                         Text(folderErrorMessage).foregroundStyle(.red)
                     } else {
-                        Text(localization.string("Speech, recordings, and practice progress are saved in this folder. Choose a folder in iCloud Drive to use the same files in the Mac app."))
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(localization.string("Speech, recordings, and practice progress are saved in this folder. Choose a folder in iCloud Drive to use the same files in the Mac app."))
+                            Text(localization.string("If you choose a folder in iCloud Drive, you can continue your practice on your other Apple devices."))
+                        }
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Clay.canvas)
+            .tint(Clay.ink)
             .fileImporter(
                 isPresented: $showsFolderPicker,
                 allowedContentTypes: [.folder],
@@ -2240,7 +2337,7 @@ private struct SettingsSheet: View {
                     try storageFolder.choose(url)
                     folderErrorMessage = nil
                 } catch {
-                    folderErrorMessage = localization.string(.format("Could not use this folder: %@", error.localizedDescription))
+                    folderErrorMessage = localization.string("Could not use this folder.")
                 }
             }
             .onChange(of: appearance) { _, newValue in newValue.apply() }
@@ -2252,6 +2349,8 @@ private struct SettingsSheet: View {
                 }
             }
         }
+        .preferredColorScheme(appearance.colorScheme)
+        .id(appearance)
     }
 
     private var availableVoices: [AVSpeechSynthesisVoice] {
