@@ -40,6 +40,7 @@ enum AppAppearance: String, CaseIterable, Identifiable {
             for window in scene.windows {
                 window.overrideUserInterfaceStyle = interfaceStyle
                 // Presented sheets can keep the style they were created with.
+                window.rootViewController?.presentedViewController?.overrideUserInterfaceStyle = interfaceStyle
                 window.rootViewController?.setNeedsStatusBarAppearanceUpdate()
             }
         }
@@ -53,7 +54,6 @@ struct DictationIOSApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .preferredColorScheme(appearance.colorScheme)
                 .onAppear { appearance.apply() }
                 .onChange(of: appearance) { _, newValue in newValue.apply() }
         }

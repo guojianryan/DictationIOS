@@ -2349,8 +2349,6 @@ private struct SettingsSheet: View {
                 }
             }
         }
-        .preferredColorScheme(appearance.colorScheme)
-        .id(appearance)
     }
 
     private var availableVoices: [AVSpeechSynthesisVoice] {
