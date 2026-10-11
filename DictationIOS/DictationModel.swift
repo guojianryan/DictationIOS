@@ -3,6 +3,7 @@ import Combine
 import CoreMedia
 import Foundation
 import FoundationModels
+import MediaPlayer
 import NaturalLanguage
 import Speech
 import Translation
@@ -386,6 +387,7 @@ final class DictationModel: ObservableObject {
     }
 
     init() {
+        configureRemoteCommands()
         let languages = Self.limitedSpeechLanguages(from: Array(SFSpeechRecognizer.supportedLocales()))
         speechLanguages = languages
         let storedOrigin = UserDefaults.standard.string(forKey: Self.originLanguageKey)
@@ -1199,6 +1201,7 @@ final class DictationModel: ObservableObject {
             return
         }
         isPlaying = true
+        updateNowPlayingInfo()
         startPlaybackMonitor()
         scheduleSentenceStopDeadline()
     }
@@ -1215,7 +1218,66 @@ final class DictationModel: ObservableObject {
         }
         if play && !isPlaying {
             togglePlayback()
+        } else {
+            updateNowPlayingInfo()
         }
+    }
+
+    // MARK: - System Remote Controls
+
+    /// Routes headphone / Control Center / lock-screen next & previous to sentences,
+    /// so they don't fall through to another app such as Music.
+    private func configureRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+
+        func handle(_ command: MPRemoteCommand, _ action: @escaping @MainActor (DictationModel) -> Bool) {
+            command.isEnabled = true
+            command.addTarget { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.player != nil, !self.sentences.isEmpty else {
+                        return .noActionableNowPlayingItem
+                    }
+                    return action(self) ? .success : .commandFailed
+                }
+            }
+        }
+
+        handle(center.nextTrackCommand) { model in
+            let next = model.currentSentenceIndex + 1
+            guard model.sentences.indices.contains(next) else { return false }
+            model.selectSentence(next, play: true)
+            return true
+        }
+        handle(center.previousTrackCommand) { model in
+            let previous = model.currentSentenceIndex - 1
+            guard model.sentences.indices.contains(previous) else { return false }
+            model.selectSentence(previous, play: true)
+            return true
+        }
+        handle(center.playCommand) { model in
+            if !model.isPlaying { model.togglePlayback() }
+            return true
+        }
+        handle(center.pauseCommand) { model in
+            model.pausePlayback()
+            return true
+        }
+        handle(center.togglePlayPauseCommand) { model in
+            model.togglePlayback()
+            return true
+        }
+        center.skipForwardCommand.isEnabled = false
+        center.skipBackwardCommand.isEnabled = false
+        center.seekForwardCommand.isEnabled = false
+        center.seekBackwardCommand.isEnabled = false
+    }
+
+    private func updateNowPlayingInfo() {
+        guard isPlaying, sentences.indices.contains(currentSentenceIndex) else { return }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+            MPMediaItemPropertyTitle: sentences[currentSentenceIndex].text,
+            MPNowPlayingInfoPropertyPlaybackRate: Double(playbackRate)
+        ]
     }
 
     func moveSentence(by offset: Int) {
@@ -2438,7 +2500,8 @@ final class DictationModel: ObservableObject {
     private func activatePlaybackSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.allowBluetoothHFP])
+            // .allowBluetoothHFP is invalid for .playback and made this throw, leaving the old session category active.
+            try session.setCategory(.playback, mode: .default, options: [])
             try session.setActive(true)
         } catch {
             // Non-fatal; playback may still work
