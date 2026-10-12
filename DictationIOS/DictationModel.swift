@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import CoreAudio
 import CoreMedia
 import Foundation
 import FoundationModels
@@ -56,7 +57,7 @@ enum PendingImportKind {
 }
 
 /// Where the material of a practice came from.
-enum PracticeSource: String, Codable {
+nonisolated enum PracticeSource: String, Codable {
     case typedText
     case textFile
     case photo
@@ -82,7 +83,7 @@ struct RecentPractice: Codable, Identifiable, Equatable {
     var lastPracticed: Date
 }
 
-private struct SavedPracticeSession: Codable {
+private nonisolated struct SavedPracticeSession: Codable {
     let formatVersion: Int
     let audioFileName: String
     let sourceLanguageIdentifier: String
@@ -179,7 +180,7 @@ private struct SavedPracticeSession: Codable {
     }
 }
 
-private struct SavedSentence: Codable {
+private nonisolated struct SavedSentence: Codable {
     let id: Int
     let text: String
     let startTime: TimeInterval
@@ -515,7 +516,7 @@ final class DictationModel: ObservableObject {
             } else {
                 transcribePendingAudio()
             }
-        case .failure(let error):
+        case .failure:
             errorMessage = "Could not open the selected audio file."
         }
     }
@@ -525,7 +526,7 @@ final class DictationModel: ObservableObject {
         case .success(let urls):
             guard let url = urls.first else { return }
             importTextFile(at: url)
-        case .failure(let error):
+        case .failure:
             errorMessage = "Could not open the selected text file."
         }
     }
@@ -1885,7 +1886,7 @@ final class DictationModel: ObservableObject {
     // MARK: - Recent Practices
 
     private static let recentPracticesBaseKey = "recentPractices"
-    static let recentPracticeLimit = 10
+    nonisolated static let recentPracticeLimit = 10
 
     /// The list is stored per storage folder: its saved files (and so its practices) live there.
     private static func recentPracticesKey(for folder: URL?) -> String {

@@ -11,6 +11,23 @@ private enum SetupChoice {
     case photo
 }
 
+private enum FileImportKind {
+    case audio
+    case text
+
+    var contentTypes: [UTType] {
+        switch self {
+        case .audio: [.audio]
+        case .text: [.plainText, .text]
+        }
+    }
+}
+
+private enum ResultsKind {
+    case dictation
+    case speaking
+}
+
 private enum PhotoProcessingStage {
     case scanning
     case formatting
@@ -42,11 +59,30 @@ struct ContentView: View {
     @State private var showsTranslation = true
     @State private var showsSettings = !UserDefaults.standard.bool(forKey: "hasShownInitialSettings")
     @State private var showsGradePopup = false
+    @State private var showsHowItWorks = false
+    /// On iPad and Mac the dictation and speaking results show in a pop-up box in the middle of
+    /// the window instead of growing the cards.
+    @State private var activeResults: ResultsKind?
+    @State private var containerHeight: CGFloat = 0
     @State private var choicesHaveAppeared = false
     @State private var recentRowHeight: CGFloat = 86
+    /// Width of the window or split-view pane, which drives the adaptive layout.
+    @State private var containerWidth: CGFloat = 0
+    /// Height of the answer box and its feedback, so their scroll view is no taller than needed.
+    @State private var answerContentHeight: CGFloat = 0
+    /// Full height of the original and translation sentence lists, to size them to three sentences.
+    @State private var originalListHeight: CGFloat = 0
+    @State private var translationListHeight: CGFloat = 0
+    @State private var howItWorksStepsHeight: CGFloat = 0
+    /// Height of the choices column in the wide start screen, which the intro column matches.
+    @State private var choicesColumnHeight: CGFloat = 0
+    /// Height of the practice page's scroll area, and of everything on it except the sentence
+    /// lists. The lists take whatever is left so the answer and play cards reach the bottom.
+    @State private var lessonViewportHeight: CGFloat = 0
+    @State private var lessonRestHeight: CGFloat = 0
     @State private var gradePopupTask: Task<Void, Never>?
-    @State private var showsAudioImporter = false
-    @State private var showsTextImporter = false
+    /// SwiftUI honors only one `.fileImporter` per view, so audio and text share one.
+    @State private var fileImportKind: FileImportKind?
     @State private var selectedPhotoPickerItem: PhotosPickerItem?
     @State private var photoUIImage: UIImage?
     @State private var isRecognizingPhotoText = false
@@ -57,9 +93,6 @@ struct ContentView: View {
     @State private var pendingCropImage: UIImage?
     @AppStorage(AppAppearance.storageKey) private var appearance: AppAppearance = .light
     @FocusState private var isAnswerFieldFocused: Bool
-    /// Whether the playback bar floats above the keyboard while typing. Otherwise it stays in the
-    /// page and the page scrolls to keep it visible.
-    @AppStorage("floatsPlaybackWhileTyping") private var floatsPlayback = true
 
     private var typedTextIsEmpty: Bool {
         typedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -91,6 +124,16 @@ struct ContentView: View {
                 }
             }
         }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            containerWidth = size.width
+            containerHeight = size.height
+        }
+        .overlay {
+            if isMediumWidth, let kind = activeResults {
+                resultsPopup(kind)
+            }
+        }
+        .onChange(of: model.currentSentenceIndex) { _, _ in activeResults = nil }
         .foregroundStyle(Clay.ink)
         .tint(Clay.ink)
         // Rebuild the screen on a theme change so every color is resolved again.
@@ -107,6 +150,11 @@ struct ContentView: View {
             UserDefaults.standard.set(true, forKey: "hasShownInitialSettings")
         }) {
             SettingsSheet(model: model, localization: localization)
+                .presentationSizing(.form)
+        }
+        .sheet(isPresented: $showsHowItWorks) {
+            howItWorksSheet
+                .presentationSizing(.form)
         }
         .alert(tr("Saved practice found"), isPresented: $model.isSavedSessionPromptPresented) {
             Button(tr("Resume")) { model.useSavedSession() }
@@ -123,23 +171,20 @@ struct ContentView: View {
             )
         }
         .fileImporter(
-            isPresented: $showsAudioImporter,
-            allowedContentTypes: [.audio],
+            isPresented: Binding(
+                get: { fileImportKind != nil },
+                set: { if !$0 { fileImportKind = nil } }
+            ),
+            allowedContentTypes: fileImportKind?.contentTypes ?? [.audio],
             allowsMultipleSelection: false
         ) { result in
-            switch result {
-            case .success(let urls): model.importAudio(.success(urls))
-            case .failure(let error): model.importAudio(.failure(error))
-            }
-        }
-        .fileImporter(
-            isPresented: $showsTextImporter,
-            allowedContentTypes: [.plainText, .text],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls): model.importText(.success(urls))
-            case .failure(let error): model.importText(.failure(error))
+            let kind = fileImportKind
+            fileImportKind = nil
+            let urls = result.map { $0 }
+            if kind == .text {
+                model.importText(urls)
+            } else {
+                model.importAudio(urls)
             }
         }
         .onChange(of: audioTab) { _, tab in
@@ -227,16 +272,46 @@ struct ContentView: View {
                 .accessibilityLabel(tr("Start over"))
             }
 
+            // iPad and Mac show the instructions on the start screen instead.
+            if !isMediumWidth {
+                Button {
+                    showsHowItWorks = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                }
+                .buttonStyle(.clayIcon)
+                .accessibilityLabel(tr("How it works"))
+            }
+
             Button {
                 showsSettings = true
             } label: {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.clayIcon)
+            .keyboardShortcut(",", modifiers: .command)
             .accessibilityLabel(tr("Settings"))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .clayColumn(contentMaxWidth)
+    }
+
+    // MARK: - Layout
+
+    /// Window widths at which the layout gains room: a roomier single column, then two columns.
+    private var isMediumWidth: Bool { containerWidth >= 600 }
+    private var isWideWidth: Bool { containerWidth >= 900 }
+    /// The practice page lays its cards out in rows from this width up (iPad portrait and larger).
+    private var isLessonWide: Bool { containerWidth >= 700 }
+
+    /// The widest the content gets before it is centered with margins instead of stretching.
+    private var contentMaxWidth: CGFloat {
+        let isPracticing = !model.sentences.isEmpty && !model.isReviewing && !model.isEditingSourceText
+        if isPracticing ? isLessonWide : (isWideWidth && model.sentences.isEmpty && setupChoice == nil) {
+            return 1200
+        }
+        return 720
     }
 
     // MARK: - Setup
@@ -252,60 +327,253 @@ struct ContentView: View {
                 errorBanner
             }
             .padding(16)
+            .clayColumn(contentMaxWidth)
         }
+        // iPad and Mac size the page to fit, so it neither bounces nor shows a scroll bar.
+        .scrollBounceBehavior(isMediumWidth ? .basedOnSize : .automatic)
+        .scrollIndicators(isMediumWidth ? .hidden : .automatic)
     }
 
     private var choiceScreen: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 16) {
-                EqualizerBars(height: 72)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 20)
-                    .frame(maxWidth: .infinity)
-                    .background(Clay.surfaceSoft, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
-
-                Text(tr("What do you want to practice?"))
-                    .font(.clayDisplay)
-                    .tracking(-0.8)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(tr("Start from text or from audio. Speech, transcription, and translations stay on your device."))
-                    .font(.body)
-                    .lineSpacing(3)
-                    .foregroundStyle(Clay.body)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(spacing: 12) {
-                choiceButton(
-                    title: tr("Text"),
-                    subtitle: tr("Type words or upload a text file"),
-                    systemImage: "text.alignleft",
-                    accent: .pink,
-                    order: 0
-                ) { setupChoice = .text }
-
-                choiceButton(
-                    title: tr("Audio"),
-                    subtitle: tr("Upload a file or record your own"),
-                    systemImage: "waveform",
-                    accent: .lavender,
-                    order: 1
-                ) { setupChoice = .audio }
-
-                choiceButton(
-                    title: tr("Photo"),
-                    subtitle: tr("Take or upload a photo, then edit the recognized text"),
-                    systemImage: "text.viewfinder",
-                    accent: .peach,
-                    order: 2
-                ) { setupChoice = .photo }
-            }
-
-            if !model.recentPractices.isEmpty {
-                recentPracticesSection
+        Group {
+            if isWideWidth {
+                HStack(alignment: .top, spacing: 40) {
+                    choiceHero(fillsHeight: true)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .frame(height: choicesColumnHeight > 0 ? choicesColumnHeight : nil, alignment: .top)
+                    VStack(alignment: .leading, spacing: 24) {
+                        choiceButtons
+                        if !model.recentPractices.isEmpty {
+                            recentPracticesSection
+                        }
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { choicesColumnHeight = $0 }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .padding(.top, 24)
+            } else {
+                VStack(alignment: .leading, spacing: 24) {
+                    choiceHero(fillsHeight: false)
+                    choiceButtons
+                    if !model.recentPractices.isEmpty {
+                        recentPracticesSection
+                    }
+                }
             }
         }
         .onAppear { choicesHaveAppeared = true }
+    }
+
+    private func choiceHero(fillsHeight: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            EqualizerBars(height: 72)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 20)
+                .frame(maxWidth: .infinity)
+                .background(Clay.surfaceSoft, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
+
+            Text(tr("What do you want to practice?"))
+                .font(.clayDisplay)
+                .tracking(-0.8)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(tr("Start from text or from audio. Speech, transcription, and translations stay on your device."))
+                .font(.body)
+                .lineSpacing(3)
+                .foregroundStyle(Clay.body)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if isMediumWidth {
+                howItWorks(fillsHeight: fillsHeight)
+                    .padding(.top, 8)
+            }
+        }
+    }
+
+    // MARK: - How It Works
+
+    private struct HowItWorksStep {
+        let systemImage: String
+        let accent: ClayAccent
+        let title: String
+        let detail: String
+    }
+
+    private var howItWorksSteps: [HowItWorksStep] {
+        [
+            HowItWorksStep(
+                systemImage: "square.and.pencil", accent: .pink,
+                title: tr("Choose your material"),
+                detail: tr("Type or upload text, upload or record audio, or scan a photo of printed text.")
+            ),
+            HowItWorksStep(
+                systemImage: "ear", accent: .lavender,
+                title: tr("Listen"),
+                detail: tr("Play the speech one sentence at a time. Tap any sentence to jump to it, and slow the speed down when you need to.")
+            ),
+            HowItWorksStep(
+                systemImage: "pencil.and.outline", accent: .ochre,
+                title: tr("Dictate"),
+                detail: tr("Switch to Dictate, listen, and write the sentence from memory. Press Check to see your score and exactly which words to review.")
+            ),
+            HowItWorksStep(
+                systemImage: "waveform.and.mic", accent: .mint,
+                title: tr("Say it out loud"),
+                detail: tr("After a perfect sentence, record yourself reading it and get a pronunciation score. Try as many times as you like.")
+            )
+        ]
+    }
+
+    /// Mac windows have room to show every step; iPad keeps the shorter scrolling card.
+    private static let howItWorksMaxHeight: CGFloat = {
+        #if targetEnvironment(macCatalyst)
+        350
+        #else
+        170
+        #endif
+    }()
+
+    /// The steps in a short scrolling card, so the intro stays compact on iPad and Mac.
+    /// With `fillsHeight`, the card stretches to the height it is given and the steps scroll
+    /// inside it; otherwise the steps get a capped height of their own.
+    private func howItWorks(fillsHeight: Bool) -> some View {
+        let steps = howItWorksSteps
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(tr("How it works"))
+                .clayEyebrow()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                        howItWorksRow(index + 1, step, isLast: index == steps.count - 1)
+                    }
+                }
+                .padding(.top, 10)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { howItWorksStepsHeight = $0 }
+            }
+            .scrollIndicators(.visible)
+            .modifier(HowItWorksScrollHeight(
+                fillsHeight: fillsHeight,
+                height: howItWorksStepsHeight > 0 ? min(howItWorksStepsHeight, Self.howItWorksMaxHeight) : Self.howItWorksMaxHeight
+            ))
+
+            Label(tr("Speech, transcription, and translations all stay on your device."), systemImage: "lock.fill")
+                .font(.caption)
+                .foregroundStyle(Clay.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 20)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
+        .clayCard(Clay.surfaceSoft, radius: Clay.Radius.xl, border: nil)
+    }
+
+    /// The instructions in a pop-up window, available from the header on every device.
+    private var howItWorksSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(howItWorksSteps.enumerated()), id: \.offset) { index, step in
+                            howItWorksRow(index + 1, step, isLast: index == howItWorksSteps.count - 1)
+                        }
+                    }
+                    Label(tr("Speech, transcription, and translations all stay on your device."), systemImage: "lock.fill")
+                        .font(.caption)
+                        .foregroundStyle(Clay.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(20)
+            }
+            .background(Clay.canvas)
+            .navigationTitle(tr("How it works"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(tr("Done")) { showsHowItWorks = false }
+                }
+            }
+        }
+        .foregroundStyle(Clay.ink)
+        .tint(Clay.ink)
+    }
+
+    private struct HowItWorksScrollHeight: ViewModifier {
+        let fillsHeight: Bool
+        let height: CGFloat
+
+        func body(content: Content) -> some View {
+            if fillsHeight {
+                content.frame(minHeight: 100, maxHeight: .infinity)
+            } else {
+                content.frame(height: height)
+            }
+        }
+    }
+
+    private func howItWorksRow(_ number: Int, _ step: HowItWorksStep, isLast: Bool) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(spacing: 0) {
+                Image(systemName: step.systemImage)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(step.accent.on)
+                    .frame(width: 36, height: 36)
+                    .background(step.accent.fill, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
+                    .overlay(alignment: .topTrailing) {
+                        Text("\(number)")
+                            .font(.system(size: 10, weight: .heavy, design: .rounded))
+                            .foregroundStyle(Clay.onInk)
+                            .frame(width: 16, height: 16)
+                            .background(Clay.ink, in: Circle())
+                            .offset(x: 5, y: -5)
+                    }
+                if !isLast {
+                    Capsule()
+                        .fill(Clay.hairline)
+                        .frame(width: 2)
+                        .frame(maxHeight: .infinity)
+                        .padding(.vertical, 4)
+                }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(step.title)
+                    .font(.clayTitle)
+                Text(step.detail)
+                    .font(.subheadline)
+                    .lineSpacing(2)
+                    .foregroundStyle(Clay.body)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.bottom, isLast ? 0 : 14)
+        }
+    }
+
+    private var choiceButtons: some View {
+        VStack(spacing: 12) {
+            choiceButton(
+                title: tr("Text"),
+                subtitle: tr("Type words or upload a text file"),
+                systemImage: "text.alignleft",
+                accent: .pink,
+                order: 0
+            ) { setupChoice = .text }
+
+            choiceButton(
+                title: tr("Audio"),
+                subtitle: tr("Upload a file or record your own"),
+                systemImage: "waveform",
+                accent: .lavender,
+                order: 1
+            ) { setupChoice = .audio }
+
+            choiceButton(
+                title: tr("Photo"),
+                subtitle: tr("Take or upload a photo, then edit the recognized text"),
+                systemImage: "text.viewfinder",
+                accent: .peach,
+                order: 2
+            ) { setupChoice = .photo }
+        }
     }
 
     // MARK: - Recent Practices
@@ -495,7 +763,7 @@ struct ContentView: View {
                         message: tr("The text is read aloud, and the spoken audio is saved in your folder."),
                         buttonTitle: tr("Choose Text"),
                         accent: .pink
-                    ) { showsTextImporter = true }
+                    ) { fileImportKind = .text }
                 }
             } else if setupChoice == .audio {
                 ClayTabs(
@@ -510,7 +778,7 @@ struct ContentView: View {
                         message: tr("MP3, WAV, M4A, and other audio formats are transcribed on your device."),
                         buttonTitle: tr("Choose Audio"),
                         accent: .lavender
-                    ) { showsAudioImporter = true }
+                    ) { fileImportKind = .audio }
                 } else {
                     recordingCard
                 }
@@ -839,9 +1107,11 @@ struct ContentView: View {
             }
         }
         .padding(16)
+        .clayColumn(contentMaxWidth)
         .overlay(alignment: .top) {
             if let message = model.errorMessage {
                 errorBanner(message).padding(.horizontal, 16).padding(.top, 4)
+                    .clayColumn(contentMaxWidth)
             }
         }
     }
@@ -861,6 +1131,7 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
             .padding(.top, 14)
+            .clayColumn(contentMaxWidth)
 
             ScrollView {
                 LazyVStack(spacing: 10) {
@@ -875,13 +1146,16 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
+                .clayColumn(contentMaxWidth)
             }
 
             reviewFooter
+                .clayColumn(contentMaxWidth)
         }
         .overlay(alignment: .top) {
             if let message = model.errorMessage {
                 errorBanner(message).padding(.horizontal, 16).padding(.top, 4)
+                    .clayColumn(contentMaxWidth)
             }
         }
     }
@@ -927,57 +1201,32 @@ struct ContentView: View {
                 VStack(spacing: 12) {
                     sessionCard
 
-                    textPanels
-
-                    if model.sentenceOnly {
-                        practiceCard
-                            .id("answerField")
-                            .overlay(alignment: .top) {
-                                if showsGradePopup, !model.practiceGradeTitle.isEmpty {
-                                    gradePopup
-                                        .offset(y: -30)
-                                        .transition(.scale(scale: 0.8).combined(with: .opacity))
-                                }
-                            }
-                            .onChange(of: model.gradeCheckCount) { _, _ in flashGradePopup() }
-
-                        if model.practiceGradeScore == 100 {
-                            speakingCard
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-                    }
-
-                    if !playbackFloats {
+                    if isLessonWide {
+                        wideLessonLayout
+                    } else {
+                        textPanels
+                        answerCard
                         playbackControls()
                             .id("playbackControls")
+                        speakingSlot
                     }
                 }
-                .padding(16)
-            }
-            // While typing, keep play within reach just above the keyboard.
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if playbackFloats {
-                    playbackControls(compact: true)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    lessonRestHeight = height - panelHeight
                 }
+                .padding(16)
+                .clayColumn(contentMaxWidth)
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { lessonViewportHeight = $0 }
+            // Wide windows are laid out to fit, so the page only scrolls when it has to.
+            .scrollBounceBehavior(isMediumWidth ? .basedOnSize : .automatic)
             .onChange(of: isAnswerFieldFocused) { _, focused in
                 guard focused else { return }
                 Task {
                     try? await Task.sleep(for: .milliseconds(300))
                     withAnimation(.easeOut(duration: 0.25)) {
-                        // Floating: show the answer field. Docked: show the playback bar under it.
-                        proxy.scrollTo(floatsPlayback ? "answerField" : "playbackControls", anchor: .bottom)
-                    }
-                }
-            }
-            .onChange(of: floatsPlayback) { _, _ in
-                guard isAnswerFieldFocused else { return }
-                Task {
-                    try? await Task.sleep(for: .milliseconds(100))
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        proxy.scrollTo(floatsPlayback ? "answerField" : "playbackControls", anchor: .bottom)
+                        // Show the playback bar under the answer field.
+                        proxy.scrollTo("playbackControls", anchor: .bottom)
                     }
                 }
             }
@@ -985,14 +1234,82 @@ struct ContentView: View {
         .overlay(alignment: .top) {
             if let message = model.errorMessage {
                 errorBanner(message).padding(.horizontal, 16).padding(.top, 4)
+                    .clayColumn(contentMaxWidth)
             }
+        }
+    }
+
+    /// The answer field, shown while dictating. In wide windows it also shows while listening,
+    /// dimmed and disabled, so the page keeps the same layout in both modes.
+    @ViewBuilder
+    private var answerCard: some View {
+        if model.sentenceOnly || isLessonWide {
+            practiceCard
+                .id("answerField")
+                .disabled(!model.sentenceOnly)
+                .opacity(model.sentenceOnly ? 1 : 0.45)
+                .overlay(alignment: .top) {
+                    if showsGradePopup, !model.practiceGradeTitle.isEmpty {
+                        gradePopup
+                            .offset(y: -30)
+                            .transition(.scale(scale: 0.8).combined(with: .opacity))
+                    }
+                }
+                .onChange(of: model.gradeCheckCount) { _, _ in
+                    flashGradePopup()
+                    if isMediumWidth {
+                        withAnimation(.spring(duration: 0.3, bounce: 0.2)) { activeResults = .dictation }
+                    }
+                }
+        }
+    }
+
+    /// The speaking card, always offered while dictating. In wide windows it also shows while
+    /// listening, dimmed and disabled.
+    @ViewBuilder
+    private var speakingSlot: some View {
+        if model.sentenceOnly || isLessonWide {
+            speakingCard
+                .disabled(!model.sentenceOnly)
+                .opacity(model.sentenceOnly ? 1 : 0.45)
+                .onChange(of: model.sentenceOnly) { _, dictating in
+                    // Leaving dictation stops any recording and closes the results box.
+                    if !dictating {
+                        speaking.reset()
+                        activeResults = nil
+                    }
+                }
+                // Open the results once an attempt has been recorded and graded, not while recording.
+                .onChange(of: speaking.attemptCount) { old, new in
+                    // Only a new attempt opens it; clearing the count on a new sentence must not.
+                    if isMediumWidth && new > old {
+                        withAnimation(.spring(duration: 0.3, bounce: 0.2)) { activeResults = .speaking }
+                    }
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    /// Wide windows. The original sits beside its translation, the answer card spans the width
+    /// below them, and the playback controls and speaking card share the last row at the same
+    /// height. Listening keeps this layout with the answer and speaking cards disabled.
+    @ViewBuilder
+    private var wideLessonLayout: some View {
+        textPanels
+        answerCard
+        HStack(alignment: .top, spacing: 16) {
+            playbackControls(fillsHeight: true)
+                .id("playbackControls")
+                .frame(maxWidth: .infinity)
+            speakingSlot
+                .frame(maxWidth: .infinity)
         }
     }
 
     private var textPanels: some View {
         Group {
             if showsOriginalText || showsTranslation {
-                VStack(spacing: 12) {
+                panelStack {
                     if showsOriginalText {
                         transcriptCard
                     }
@@ -1007,6 +1324,16 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
             }
+        }
+    }
+
+    /// Original and translation sit side by side when listening in a wide window, otherwise stacked.
+    @ViewBuilder
+    private func panelStack<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        if isLessonWide {
+            HStack(alignment: .top, spacing: 16) { content() }
+        } else {
+            VStack(spacing: 12) { content() }
         }
     }
 
@@ -1096,7 +1423,7 @@ struct ContentView: View {
             Label(localization.languageName(for: model.selectedSpeechLocale), systemImage: "text.quote")
                 .clayBadge(.lavender)
 
-            sentencePanel(model.sentences.map(\.text), accent: .lavender, height: 118)
+            sentencePanel(originalTexts, accent: .lavender, height: panelHeight, listHeight: $originalListHeight)
 
             if !model.punctuationStatus.isEmpty {
                 Text(localized(model.punctuationStatus))
@@ -1105,7 +1432,7 @@ struct ContentView: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: isLessonWide ? .infinity : nil, alignment: .topLeading)
         .clayCard()
     }
 
@@ -1124,26 +1451,68 @@ struct ContentView: View {
                 .frame(maxWidth: 130)
             }
 
-            sentencePanel(
-                model.sentences.indices.map { index in
-                    model.translatedSentences.indices.contains(index) ? model.translatedSentences[index] : ""
-                },
-                accent: .mint,
-                height: 118
-            )
+            sentencePanel(translatedTexts, accent: .mint, height: panelHeight, listHeight: $translationListHeight)
 
-            Text(translationCaption)
-                .font(.caption)
-                .foregroundStyle(Clay.muted)
+            // iPad and Mac leave the caption out to make room for a taller list.
+            if !isMediumWidth {
+                Text(translationCaption)
+                    .font(.caption)
+                    .foregroundStyle(Clay.muted)
+            }
         }
         .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: isLessonWide ? .infinity : nil, alignment: .topLeading)
         .clayCard()
     }
 
-    private func sentencePanel(_ texts: [String], accent: ClayAccent, height: CGFloat) -> some View {
-        ScrollViewReader { proxy in
+    private static let visibleSentences = 3
+    /// iPad and Mac lists show two more lines than three sentences take.
+    private static let extraPanelLines: CGFloat = 2
+    private static let panelLineHeight: CGFloat = 25
+    private static let sentenceRowSpacing: CGFloat = 4
+
+    private var originalTexts: [String] { model.sentences.map(\.text) }
+
+    private var translatedTexts: [String] {
+        model.sentences.indices.map { index in
+            model.translatedSentences.indices.contains(index) ? model.translatedSentences[index] : ""
+        }
+    }
+
+    /// Height of a list that shows three sentences, plus extra lines on iPad and Mac, or all of
+    /// them when fewer. iPhone keeps its original fixed height.
+    private func naturalPanelHeight(_ texts: [String], listHeight: CGFloat) -> CGFloat {
+        guard isMediumWidth else { return 118 }
+        let rowCount = texts.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        guard rowCount > 0, listHeight > 0 else { return 120 }
+        let spacing = Self.sentenceRowSpacing
+        let rowHeight = (listHeight - spacing * CGFloat(rowCount - 1)) / CGFloat(rowCount)
+        let visible = min(rowCount, Self.visibleSentences)
+        return rowHeight * CGFloat(visible) + spacing * CGFloat(visible - 1)
+            + (rowCount > Self.visibleSentences ? Self.extraPanelLines * Self.panelLineHeight : 0)
+    }
+
+    /// The original and translation lists share one height. Listening makes it three lines taller
+    /// than the taller of them; dictating fills the page.
+    private var panelHeight: CGFloat {
+        let original = naturalPanelHeight(originalTexts, listHeight: originalListHeight)
+        guard isLessonWide else { return original }
+        let translated = naturalPanelHeight(translatedTexts, listHeight: translationListHeight)
+        let natural = max(original, translated)
+        if lessonViewportHeight > 0, lessonRestHeight > 0 {
+            // The lists grow until the cards below them reach the bottom of the page.
+            let available = lessonViewportHeight - 2 * 16 - lessonRestHeight - 1
+            return max(natural, available)
+        }
+        return natural + 3 * Self.panelLineHeight
+    }
+
+    /// A scrolling list of sentences, `height` tall.
+    private func sentencePanel(_ texts: [String], accent: ClayAccent, height: CGFloat, listHeight: Binding<CGFloat>) -> some View {
+        return ScrollViewReader { proxy in
             ScrollView {
                 sentenceRows(texts, accent: accent)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight.wrappedValue = $0 }
             }
             .frame(height: height)
             .onAppear {
@@ -1158,7 +1527,7 @@ struct ContentView: View {
     }
 
     private func sentenceRows(_ texts: [String], accent: ClayAccent) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Self.sentenceRowSpacing) {
             ForEach(Array(texts.enumerated()), id: \.offset) { index, text in
                 let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !cleanText.isEmpty {
@@ -1186,6 +1555,48 @@ struct ContentView: View {
         }
     }
 
+    /// Wide windows keep the answer card short so the page fits without scrolling; its feedback
+    /// scrolls inside the card instead.
+    /// The feedback, the corrected answer and the word-by-word marks after pressing Check.
+    /// The grey box with the number of differences to review.
+    @ViewBuilder
+    private var dictationFeedbackBox: some View {
+        if !model.practiceFeedback.isEmpty {
+            Text(localized(model.practiceFeedback))
+                .font(.callout.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Clay.surfaceCard, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
+    private func dictationResults(includesFeedback: Bool = true) -> some View {
+        if includesFeedback {
+            dictationFeedbackBox
+        }
+
+        if !model.practiceWordResults.isEmpty {
+            Text(practiceDiff)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            if !model.missingPracticeWords.isEmpty {
+                Text(tr("Missing: %@", model.missingPracticeWords.joined(separator: " ")))
+                    .font(.callout)
+                    .foregroundStyle(Clay.errorText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 10) {
+                Label(tr("Correct"), systemImage: "checkmark").foregroundStyle(Clay.successText)
+                Label(tr("Review"), systemImage: "xmark").foregroundStyle(Clay.errorText)
+            }
+            .font(.caption)
+        }
+    }
+
+    private var answerMaxHeight: CGFloat { isLessonWide ? 150 : (isMediumWidth ? 560 : 220) }
+
     private var practiceCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
@@ -1198,12 +1609,6 @@ struct ContentView: View {
                 }
                 Spacer(minLength: 8)
                 HStack(spacing: 8) {
-                    Button {
-                        model.toggleAnswerVisibility()
-                    } label: {
-                        Image(systemName: model.answerIsRevealed ? "eye.slash" : "eye")
-                    }
-                    .buttonStyle(.clayIcon)
                     Button {
                         model.checkAnswer()
                     } label: {
@@ -1225,7 +1630,10 @@ struct ContentView: View {
                         set: { model.updateAnswerDraft($0) }
                     ))
                     .font(.body)
-                    .frame(minHeight: 60, maxHeight: 90)
+                    .frame(
+                        minHeight: isLessonWide ? 64 : (isMediumWidth ? 180 : 60),
+                        maxHeight: isLessonWide ? 64 : (isMediumWidth ? 360 : 90)
+                    )
                     .scrollContentBackground(.hidden)
                     .padding(5)
                     .focused($isAnswerFieldFocused)
@@ -1234,37 +1642,97 @@ struct ContentView: View {
                         lineWidth: isAnswerFieldFocused ? 1.5 : 1
                     )
 
-                    if !model.practiceFeedback.isEmpty {
-                        Text(localized(model.practiceFeedback))
-                            .font(.callout.weight(.medium))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Clay.surfaceCard, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
-                    }
-
-                    if !model.practiceWordResults.isEmpty {
-                        Text(practiceDiff)
-                            .font(.callout)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if !model.missingPracticeWords.isEmpty {
-                            Text(tr("Missing: %@", model.missingPracticeWords.joined(separator: " ")))
-                                .font(.callout)
-                                .foregroundStyle(Clay.errorText)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        HStack(spacing: 10) {
-                            Label(tr("Correct"), systemImage: "checkmark").foregroundStyle(Clay.successText)
-                            Label(tr("Review"), systemImage: "xmark").foregroundStyle(Clay.errorText)
-                        }
-                        .font(.caption)
+                    if !isMediumWidth {
+                        dictationResults()
                     }
                 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { answerContentHeight = $0 }
             }
-            .frame(maxHeight: 220)
+            .frame(height: answerContentHeight <= 0 ? answerMaxHeight : min(answerContentHeight, answerMaxHeight))
         }
         .padding(14)
         .clayCard()
+    }
+
+    /// The results box: centered in the window, about 40% of its width and height, so it keeps
+    /// the window's aspect ratio. Everything else stays usable around it.
+    private func resultsPopup(_ kind: ResultsKind) -> some View {
+        let scale = min(0.675, max(0.375, 390 / max(containerWidth, 1)))
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label(
+                    kind == .dictation ? tr("Your answer") : tr("Your speaking"),
+                    systemImage: kind == .dictation ? "pencil.and.outline" : "waveform.and.mic"
+                )
+                .font(.clayTitle)
+                Spacer()
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) { activeResults = nil }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.footnote.weight(.bold))
+                        .frame(width: 32, height: 32)
+                        .background(Clay.ink.opacity(0.1), in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(tr("Close"))
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if kind == .dictation {
+                        if let score = model.practiceGradeScore {
+                            resultsSummary(score: score, title: localized(model.practiceGradeTitle)) {
+                                dictationFeedbackBox
+                            }
+                        } else {
+                            dictationFeedbackBox
+                        }
+                        dictationResults(includesFeedback: false)
+                    } else {
+                        if let score = speaking.score, !speaking.isRecording {
+                            resultsSummary(score: score, title: tr(speakingRatingTitle(score))) {
+                                speakingRecognizedBox
+                            }
+                        } else {
+                            speakingRecognizedBox
+                        }
+                        speakingResults(includesRecognized: false)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.visible)
+        }
+        .padding(20)
+        .frame(width: containerWidth * scale, height: containerHeight * scale, alignment: .topLeading)
+        .background(Clay.popup, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous).strokeBorder(Clay.ink.opacity(0.12)) }
+        .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
+        .transition(.scale(scale: 0.92).combined(with: .opacity))
+    }
+
+    /// The score badge at the top of a results box, with optional content beside it.
+    private func resultsSummary<Beside: View>(
+        score: Int,
+        title: String,
+        @ViewBuilder beside: () -> Beside = { EmptyView() }
+    ) -> some View {
+        let accent = scoreAccent(score)
+        return HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("\(score)%")
+                    .font(.title3.weight(.heavy).monospacedDigit())
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(accent.on)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(accent.fill, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
+
+            beside()
+        }
     }
 
     private var gradePopup: some View {
@@ -1338,107 +1806,154 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 12) {
-                Button {
-                    guard let sentence = model.currentSentence else { return }
-                    model.pausePlayback()
-                    isAnswerFieldFocused = false
-                    speaking.toggleRecording(expectedText: sentence.text, localeIdentifier: model.selectedSpeechLocale)
-                } label: {
-                    Image(systemName: speaking.isRecording ? "stop.fill" : "mic.fill")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 56, height: 56)
-                        .background(speaking.isRecording ? Clay.error : Clay.pink, in: Circle())
-                }
-                .buttonStyle(.clayPressable)
-                .accessibilityLabel(speaking.isRecording ? tr("Stop") : tr("Record"))
-
-                if speaking.hasRecording && !speaking.isRecording {
-                    Button {
-                        model.pausePlayback()
-                        speaking.togglePlayback()
-                    } label: {
-                        Image(systemName: speaking.isPlaying ? "stop.fill" : "play.fill")
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(Clay.ink)
-                            .contentTransition(.symbolEffect(.replace))
-                            .frame(width: 56, height: 56)
-                            .background(Clay.surfaceCard, in: Circle())
+            if isMediumWidth {
+                // iPad and Mac: the buttons sit on the left with the status text beside them, and
+                // the score is in the results box.
+                HStack(spacing: 24) {
+                    HStack(spacing: 24) {
+                        speakingRecordButton
+                        speakingPlayButton
                     }
-                    .buttonStyle(.clayPressable)
-                    .accessibilityLabel(speaking.isPlaying ? tr("Stop") : tr("Play my recording"))
+                    speakingStatus(alignment: .leading)
+                    Spacer(minLength: 0)
                 }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(speaking.isRecording
-                         ? tr("Listening\u{2026}")
-                         : (speaking.attemptCount > 0 ? tr("Record again") : tr("Tap to record")))
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(speaking.isRecording ? Clay.errorText : Clay.ink)
-                    if speaking.attemptCount > 0 && !speaking.isRecording {
-                        Text(tr("Attempts: %@", String(speaking.attemptCount)))
-                            .font(.caption)
-                            .foregroundStyle(Clay.muted)
-                    }
-                }
-
-                Spacer(minLength: 8)
-
-                if let score = speaking.score, !speaking.isRecording {
-                    let accent = scoreAccent(score)
-                    VStack(spacing: 0) {
-                        Text("\(score)%")
-                            .font(.title3.weight(.heavy).monospacedDigit())
-                        Text(tr(speakingRatingTitle(score)))
-                            .font(.caption2.weight(.semibold))
-                    }
-                    .foregroundStyle(accent.on)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(accent.fill, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
+            } else {
+                HStack(spacing: 12) {
+                    speakingRecordButton
+                    speakingPlayButton
+                    speakingStatus(alignment: .leading)
+                    Spacer(minLength: 8)
+                    speakingScoreBadge
                 }
             }
 
-            if speaking.isRecording || speaking.score != nil {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(tr("Recognized"))
-                        .clayEyebrow()
-                    Text(speaking.recognizedText.isEmpty
-                         ? (speaking.isRecording ? tr("Start speaking\u{2026}") : tr("Nothing was recognized. Try again."))
-                         : speaking.recognizedText)
-                        .font(.callout)
-                        .foregroundStyle(speaking.recognizedText.isEmpty ? Clay.muted : Clay.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Clay.surfaceCard, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
-            }
-
-            if !speaking.wordResults.isEmpty && !speaking.isRecording {
-                Text(spokenDiff)
-                    .font(.callout)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    Label(tr("Heard"), systemImage: "checkmark").foregroundStyle(Clay.successText)
-                    Label(tr("Not heard"), systemImage: "xmark").foregroundStyle(Clay.errorText)
-                }
-                .font(.caption)
-            }
-
-            if let message = speaking.errorMessage {
-                Text(localized(message))
-                    .font(.caption)
-                    .foregroundStyle(Clay.errorText)
-                    .fixedSize(horizontal: false, vertical: true)
+            if !isMediumWidth {
+                speakingResults()
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: isLessonWide ? .infinity : nil, alignment: .topLeading)
         .clayCard(border: speaking.isRecording ? Clay.error : Clay.hairline)
         .onDisappear { speaking.reset() }
+        .onChange(of: model.currentSentenceIndex) { _, _ in
+            // The card stays up between sentences, so clear the last attempt.
+            speaking.reset()
+        }
+    }
+
+    private var speakingRecordButton: some View {
+        Button {
+            guard let sentence = model.currentSentence else { return }
+            model.pausePlayback()
+            isAnswerFieldFocused = false
+            speaking.toggleRecording(expectedText: sentence.text, localeIdentifier: model.selectedSpeechLocale)
+        } label: {
+            Image(systemName: speaking.isRecording ? "stop.fill" : "mic.fill")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(.white)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 56, height: 56)
+                .background(speaking.isRecording ? Clay.error : Clay.pink, in: Circle())
+        }
+        .buttonStyle(.clayPressable)
+        .accessibilityLabel(speaking.isRecording ? tr("Stop") : tr("Record"))
+    }
+
+    @ViewBuilder
+    private var speakingPlayButton: some View {
+        if speaking.hasRecording && !speaking.isRecording {
+            Button {
+                model.pausePlayback()
+                speaking.togglePlayback()
+            } label: {
+                Image(systemName: speaking.isPlaying ? "stop.fill" : "play.fill")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(Clay.ink)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 56, height: 56)
+                    .background(Clay.surfaceCard, in: Circle())
+            }
+            .buttonStyle(.clayPressable)
+            .accessibilityLabel(speaking.isPlaying ? tr("Stop") : tr("Play my recording"))
+        }
+    }
+
+    private func speakingStatus(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 2) {
+        Text(speaking.isRecording
+             ? tr("Listening\u{2026}")
+             : (speaking.attemptCount > 0 ? tr("Record again") : tr("Tap to record")))
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(speaking.isRecording ? Clay.errorText : Clay.ink)
+        if speaking.attemptCount > 0 && !speaking.isRecording {
+            Text(tr("Attempts: %@", String(speaking.attemptCount)))
+                .font(.caption)
+                .foregroundStyle(Clay.muted)
+        }
+        }
+    }
+
+    @ViewBuilder
+    private var speakingScoreBadge: some View {
+        if let score = speaking.score, !speaking.isRecording {
+            let accent = scoreAccent(score)
+            VStack(spacing: 0) {
+                Text("\(score)%")
+                    .font(.title3.weight(.heavy).monospacedDigit())
+                Text(tr(speakingRatingTitle(score)))
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(accent.on)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(accent.fill, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
+        }
+    }
+
+    /// What the microphone heard, shown once recording starts.
+    @ViewBuilder
+    private var speakingRecognizedBox: some View {
+        if speaking.isRecording || speaking.score != nil {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(tr("Recognized"))
+                    .clayEyebrow()
+                Text(speaking.recognizedText.isEmpty
+                     ? (speaking.isRecording ? tr("Start speaking\u{2026}") : tr("Nothing was recognized. Try again."))
+                     : speaking.recognizedText)
+                    .font(.callout)
+                    .foregroundStyle(speaking.recognizedText.isEmpty ? Clay.muted : Clay.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Clay.surfaceCard, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
+        }
+    }
+
+    /// What was recognized, the word-by-word marks and any error after a speaking attempt.
+    @ViewBuilder
+    private func speakingResults(includesRecognized: Bool = true) -> some View {
+    if includesRecognized {
+        speakingRecognizedBox
+    }
+
+    if !speaking.wordResults.isEmpty && !speaking.isRecording {
+        Text(spokenDiff)
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 10) {
+            Label(tr("Heard"), systemImage: "checkmark").foregroundStyle(Clay.successText)
+            Label(tr("Not heard"), systemImage: "xmark").foregroundStyle(Clay.errorText)
+        }
+        .font(.caption)
+    }
+
+    if let message = speaking.errorMessage {
+        Text(localized(message))
+            .font(.caption)
+            .foregroundStyle(Clay.errorText)
+            .fixedSize(horizontal: false, vertical: true)
+    }
     }
 
     private var spokenDiff: AttributedString {
@@ -1463,31 +1978,27 @@ struct ContentView: View {
 
     // MARK: - Playback Controls
 
-    private var playbackFloats: Bool { isAnswerFieldFocused && floatsPlayback }
-
-    private func playbackControls(compact: Bool = false) -> some View {
-        VStack(spacing: 12) {
-            if !compact {
-                HStack(spacing: 8) {
-                    Text(Self.timeString(model.currentTime))
-                        .monospacedDigit()
-                    Slider(value: Binding(
-                        get: { model.currentTime },
-                        set: { model.seek(to: $0) }
-                    ), in: 0...max(model.duration, 1))
-                    .tint(Clay.ochre)
-                    Text(Self.timeString(model.duration))
-                        .monospacedDigit()
-                }
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.75))
+    private func playbackControls(fillsHeight: Bool = false) -> some View {
+        VStack(spacing: fillsHeight ? 8 : 12) {
+            HStack(spacing: 8) {
+                Text(Self.timeString(model.currentTime))
+                    .monospacedDigit()
+                Slider(value: Binding(
+                    get: { model.currentTime },
+                    set: { model.seek(to: $0) }
+                ), in: 0...max(model.duration, 1))
+                .tint(Clay.ochre)
+                Text(Self.timeString(model.duration))
+                    .monospacedDigit()
             }
+            .font(.caption)
+            .foregroundStyle(.white.opacity(0.75))
 
             HStack(spacing: 8) {
                 Button {
                     model.moveSentence(by: -1)
                 } label: {
-                    playbackStepIcon("backward.end.fill")
+                    playbackStepIcon("backward.end.fill", size: fillsHeight ? 38 : 44)
                 }
                 .buttonStyle(.clayPressable)
                 .accessibilityLabel(tr("Previous sentence"))
@@ -1499,7 +2010,7 @@ struct ContentView: View {
                         .font(.title2.weight(.bold))
                         .foregroundStyle(Clay.onColor)
                         .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 60, height: 60)
+                        .frame(width: fillsHeight ? 48 : 60, height: fillsHeight ? 48 : 60)
                         .background(Clay.cream, in: Circle())
                 }
                 .buttonStyle(.clayPressable)
@@ -1508,7 +2019,7 @@ struct ContentView: View {
                 Button {
                     model.moveSentence(by: 1)
                 } label: {
-                    playbackStepIcon("forward.end.fill")
+                    playbackStepIcon("forward.end.fill", size: fillsHeight ? 38 : 44)
                 }
                 .buttonStyle(.clayPressable)
                 .accessibilityLabel(tr("Next sentence"))
@@ -1525,29 +2036,18 @@ struct ContentView: View {
                 .labelsHidden()
                 .tint(.white)
                 .frame(width: 90)
-
-                Button {
-                    withAnimation(.easeOut(duration: 0.2)) { floatsPlayback.toggle() }
-                } label: {
-                    Image(systemName: floatsPlayback ? "pin.slash.fill" : "pin.fill")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .frame(width: 28, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(floatsPlayback ? tr("Keep controls in the page while typing") : tr("Float controls above the keyboard while typing"))
             }
         }
-        .padding(compact ? 10 : 16)
+        .padding(fillsHeight ? 12 : 16)
+        .frame(maxHeight: fillsHeight ? .infinity : nil)
         .background(Clay.teal, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
     }
 
-    private func playbackStepIcon(_ systemImage: String) -> some View {
+    private func playbackStepIcon(_ systemImage: String, size: CGFloat = 44) -> some View {
         Image(systemName: systemImage)
             .font(.body.weight(.bold))
             .foregroundStyle(.white)
-            .frame(width: 44, height: 44)
+            .frame(width: size, height: size)
             .background(.white.opacity(0.14), in: Circle())
     }
 

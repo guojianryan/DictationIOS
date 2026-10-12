@@ -47,6 +47,15 @@ enum AppAppearance: String, CaseIterable, Identifiable {
     }
 }
 
+/// Keeps windows usable when they are resized: Mac windows and iPad Stage Manager windows
+/// cannot shrink below the narrowest layout the app is designed for.
+@MainActor
+func applyWindowSizeLimits() {
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+        scene.sizeRestrictions?.minimumSize = CGSize(width: 420, height: 560)
+    }
+}
+
 @main
 struct DictationIOSApp: App {
     @AppStorage(AppAppearance.storageKey) private var appearance: AppAppearance = .light
@@ -54,8 +63,12 @@ struct DictationIOSApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .onAppear { appearance.apply() }
+                .onAppear {
+                    appearance.apply()
+                    applyWindowSizeLimits()
+                }
                 .onChange(of: appearance) { _, newValue in newValue.apply() }
         }
+        .defaultSize(width: 1080, height: 840)
     }
 }

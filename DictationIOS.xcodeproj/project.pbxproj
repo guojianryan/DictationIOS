@@ -24,7 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		8E7F83733068F35200C94A76 /* DictationIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DictationIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8E7F83733068F35200C94A76 /* Echo Quillo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Echo Quillo.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8E7F83823068F35300C94A76 /* DictationIOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DictationIOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8E7F838C3068F35300C94A76 /* DictationIOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DictationIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -85,7 +85,7 @@
 		8E7F83743068F35200C94A76 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8E7F83733068F35200C94A76 /* DictationIOS.app */,
+				8E7F83733068F35200C94A76 /* Echo Quillo.app */,
 				8E7F83823068F35300C94A76 /* DictationIOSTests.xctest */,
 				8E7F838C3068F35300C94A76 /* DictationIOSUITests.xctest */,
 			);
@@ -114,7 +114,7 @@
 			packageProductDependencies = (
 			);
 			productName = DictationIOS;
-			productReference = 8E7F83733068F35200C94A76 /* DictationIOS.app */;
+			productReference = 8E7F83733068F35200C94A76 /* Echo Quillo.app */;
 			productType = "com.apple.product-type.application";
 		};
 		8E7F83813068F35300C94A76 /* DictationIOSTests */ = {
@@ -401,6 +401,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Echo Quillo";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to take photos of text for dictation practice.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app records audio for language dictation practice.";
@@ -417,8 +418,18 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = jianguo.ditationIOS.EchoLingoIOS;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Echo Quillo";
+				"ENABLE_APP_SANDBOX[sdk=macosx*]" = YES;
+				"ENABLE_OUTGOING_NETWORK_CONNECTIONS[sdk=macosx*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_AUDIO_INPUT[sdk=macosx*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=macosx*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY[sdk=macosx*]" = YES;
+				"ENABLE_USER_SELECTED_FILES[sdk=macosx*]" = readwrite;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -439,6 +450,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Echo Quillo";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to take photos of text for dictation practice.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app records audio for language dictation practice.";
@@ -455,8 +467,18 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = jianguo.ditationIOS.EchoLingoIOS;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Echo Quillo";
+				"ENABLE_APP_SANDBOX[sdk=macosx*]" = YES;
+				"ENABLE_OUTGOING_NETWORK_CONNECTIONS[sdk=macosx*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_AUDIO_INPUT[sdk=macosx*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=macosx*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY[sdk=macosx*]" = YES;
+				"ENABLE_USER_SELECTED_FILES[sdk=macosx*]" = readwrite;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -480,7 +502,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MACCATALYST = YES;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -506,7 +528,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MACCATALYST = YES;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
