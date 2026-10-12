@@ -387,7 +387,6 @@ final class DictationModel: ObservableObject {
     }
 
     init() {
-        configureRemoteCommands()
         let languages = Self.limitedSpeechLanguages(from: Array(SFSpeechRecognizer.supportedLocales()))
         speechLanguages = languages
         let storedOrigin = UserDefaults.standard.string(forKey: Self.originLanguageKey)
@@ -411,6 +410,7 @@ final class DictationModel: ObservableObject {
             .sink { [weak self] newURL in
                 self?.refreshRecentPractices(for: newURL)
             }
+        configureRemoteCommands()
     }
 
     private var storageFolderObserver: AnyCancellable?

@@ -207,7 +207,7 @@ struct ContentView: View {
                 .background(Clay.pink, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(verbatim: "EchoLingo")
+                Text(verbatim: "Echo Quillo")
                     .font(.clayTitle)
                     .tracking(-0.4)
                 Text(tr("Listen \u{2022} learn \u{2022} level up"))
