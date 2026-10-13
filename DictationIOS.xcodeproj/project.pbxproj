@@ -24,7 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		8E7F83733068F35200C94A76 /* Echo Quillo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Echo Quillo.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8E7F83733068F35200C94A76 /* Echo Quill.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Echo Quill.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8E7F83823068F35300C94A76 /* DictationIOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DictationIOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8E7F838C3068F35300C94A76 /* DictationIOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DictationIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -85,7 +85,7 @@
 		8E7F83743068F35200C94A76 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8E7F83733068F35200C94A76 /* Echo Quillo.app */,
+				8E7F83733068F35200C94A76 /* Echo Quill.app */,
 				8E7F83823068F35300C94A76 /* DictationIOSTests.xctest */,
 				8E7F838C3068F35300C94A76 /* DictationIOSUITests.xctest */,
 			);
@@ -114,7 +114,7 @@
 			packageProductDependencies = (
 			);
 			productName = DictationIOS;
-			productReference = 8E7F83733068F35200C94A76 /* Echo Quillo.app */;
+			productReference = 8E7F83733068F35200C94A76 /* Echo Quill.app */;
 			productType = "com.apple.product-type.application";
 		};
 		8E7F83813068F35300C94A76 /* DictationIOSTests */ = {
@@ -398,9 +398,15 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = D4JN62A887;
+				"ENABLE_APP_SANDBOX[sdk=macosx*]" = YES;
+				"ENABLE_OUTGOING_NETWORK_CONNECTIONS[sdk=macosx*]" = YES;
 				ENABLE_PREVIEWS = YES;
+				"ENABLE_RESOURCE_ACCESS_AUDIO_INPUT[sdk=macosx*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=macosx*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY[sdk=macosx*]" = YES;
+				"ENABLE_USER_SELECTED_FILES[sdk=macosx*]" = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Echo Quillo";
+				INFOPLIST_KEY_CFBundleDisplayName = "Echo Quill";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to take photos of text for dictation practice.";
@@ -412,19 +418,14 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = jianguo.ditationIOS.EchoLingoIOS;
-				PRODUCT_NAME = "Echo Quillo";
-				"ENABLE_APP_SANDBOX[sdk=macosx*]" = YES;
-				"ENABLE_OUTGOING_NETWORK_CONNECTIONS[sdk=macosx*]" = YES;
-				"ENABLE_RESOURCE_ACCESS_AUDIO_INPUT[sdk=macosx*]" = YES;
-				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=macosx*]" = YES;
-				"ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY[sdk=macosx*]" = YES;
-				"ENABLE_USER_SELECTED_FILES[sdk=macosx*]" = readwrite;
+				PRODUCT_NAME = "Echo Quill";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = YES;
@@ -447,9 +448,15 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = D4JN62A887;
+				"ENABLE_APP_SANDBOX[sdk=macosx*]" = YES;
+				"ENABLE_OUTGOING_NETWORK_CONNECTIONS[sdk=macosx*]" = YES;
 				ENABLE_PREVIEWS = YES;
+				"ENABLE_RESOURCE_ACCESS_AUDIO_INPUT[sdk=macosx*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=macosx*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY[sdk=macosx*]" = YES;
+				"ENABLE_USER_SELECTED_FILES[sdk=macosx*]" = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Echo Quillo";
+				INFOPLIST_KEY_CFBundleDisplayName = "Echo Quill";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to take photos of text for dictation practice.";
@@ -461,19 +468,14 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = jianguo.ditationIOS.EchoLingoIOS;
-				PRODUCT_NAME = "Echo Quillo";
-				"ENABLE_APP_SANDBOX[sdk=macosx*]" = YES;
-				"ENABLE_OUTGOING_NETWORK_CONNECTIONS[sdk=macosx*]" = YES;
-				"ENABLE_RESOURCE_ACCESS_AUDIO_INPUT[sdk=macosx*]" = YES;
-				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=macosx*]" = YES;
-				"ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY[sdk=macosx*]" = YES;
-				"ENABLE_USER_SELECTED_FILES[sdk=macosx*]" = readwrite;
+				PRODUCT_NAME = "Echo Quill";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = YES;

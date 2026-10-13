@@ -63,6 +63,7 @@ struct ContentView: View {
     /// On iPad and Mac the dictation and speaking results show in a pop-up box in the middle of
     /// the window instead of growing the cards.
     @State private var activeResults: ResultsKind?
+    @State private var resultsContentHeight: CGFloat = 0
     @State private var containerHeight: CGFloat = 0
     @State private var choicesHaveAppeared = false
     @State private var recentRowHeight: CGFloat = 86
@@ -75,7 +76,7 @@ struct ContentView: View {
     @State private var translationListHeight: CGFloat = 0
     @State private var howItWorksStepsHeight: CGFloat = 0
     /// Height of the choices column in the wide start screen, which the intro column matches.
-    @State private var choicesColumnHeight: CGFloat = 0
+    @State private var setupViewportHeight: CGFloat = 0
     /// Height of the practice page's scroll area, and of everything on it except the sentence
     /// lists. The lists take whatever is left so the answer and play cards reach the bottom.
     @State private var lessonViewportHeight: CGFloat = 0
@@ -252,7 +253,7 @@ struct ContentView: View {
                 .background(Clay.pink, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(verbatim: "Echo Quillo")
+                Text(verbatim: "Echo Quill")
                     .font(.clayTitle)
                     .tracking(-0.4)
                 Text(tr("Listen \u{2022} learn \u{2022} level up"))
@@ -332,6 +333,13 @@ struct ContentView: View {
         // iPad and Mac size the page to fit, so it neither bounces nor shows a scroll bar.
         .scrollBounceBehavior(isMediumWidth ? .basedOnSize : .automatic)
         .scrollIndicators(isMediumWidth ? .hidden : .automatic)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { setupViewportHeight = $0 }
+    }
+
+    /// The wide start screen's columns reach the bottom of the window, less the page padding
+    /// (16 each side), the top inset (24) and some breathing room.
+    private var wideColumnHeight: CGFloat {
+        max(420, setupViewportHeight - 16 - 16 - 24 - 24)
     }
 
     private var choiceScreen: some View {
@@ -340,15 +348,13 @@ struct ContentView: View {
                 HStack(alignment: .top, spacing: 40) {
                     choiceHero(fillsHeight: true)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .frame(height: choicesColumnHeight > 0 ? choicesColumnHeight : nil, alignment: .top)
+                        .frame(height: wideColumnHeight, alignment: .top)
                     VStack(alignment: .leading, spacing: 24) {
                         choiceButtons
-                        if !model.recentPractices.isEmpty {
-                            recentPracticesSection
-                        }
+                        recentPracticesSection(fillsHeight: true)
                     }
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { choicesColumnHeight = $0 }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(height: wideColumnHeight, alignment: .top)
                 }
                 .padding(.top, 24)
             } else {
@@ -356,7 +362,7 @@ struct ContentView: View {
                     choiceHero(fillsHeight: false)
                     choiceButtons
                     if !model.recentPractices.isEmpty {
-                        recentPracticesSection
+                        recentPracticesSection(fillsHeight: false)
                     }
                 }
             }
@@ -580,12 +586,33 @@ struct ContentView: View {
 
     private static let recentAccents: [ClayAccent] = [.ochre, .mint, .lavender, .peach, .pink]
 
-    private var recentPracticesSection: some View {
+    /// With `fillsHeight`, the section stretches to the space it is given: the rows scroll
+    /// inside it, and an empty list keeps the same footprint.
+    private func recentPracticesSection(fillsHeight: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(tr("Recent practices"))
                 .clayEyebrow()
 
-            if model.recentPractices.count > Self.visibleRecentRows {
+            if fillsHeight {
+                ZStack {
+                    if model.recentPractices.isEmpty {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 28, weight: .regular))
+                            .foregroundStyle(Clay.muted.opacity(0.5))
+                    } else {
+                        ScrollView {
+                            recentPracticeRows
+                                .padding(.trailing, 12)
+                        }
+                        .scrollIndicators(.visible)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    Clay.surfaceSoft.opacity(model.recentPractices.isEmpty ? 1 : 0),
+                    in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous)
+                )
+            } else if model.recentPractices.count > Self.visibleRecentRows {
                 // Taller lists scroll inside a window that fits exactly three rows.
                 ScrollView {
                     recentPracticeRows
@@ -1654,10 +1681,12 @@ struct ContentView: View {
         .clayCard()
     }
 
-    /// The results box: centered in the window, about 40% of its width and height, so it keeps
-    /// the window's aspect ratio. Everything else stays usable around it.
+    /// The results box: centered in the window, about 40% of its width. Its height follows the
+    /// content, up to most of the window, then scrolls. Everything else stays usable around it.
     private func resultsPopup(_ kind: ResultsKind) -> some View {
         let scale = min(0.675, max(0.375, 390 / max(containerWidth, 1)))
+        // Window height minus the popup's padding (40), header (32) and spacing (10), with a margin.
+        let maxScrollHeight = max(120, containerHeight * 0.85 - 82)
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label(
@@ -1701,11 +1730,13 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { resultsContentHeight = $0 }
             }
             .scrollIndicators(.visible)
+            .frame(height: resultsContentHeight <= 0 ? nil : min(resultsContentHeight, maxScrollHeight))
         }
         .padding(20)
-        .frame(width: containerWidth * scale, height: containerHeight * scale, alignment: .topLeading)
+        .frame(width: containerWidth * scale, alignment: .topLeading)
         .background(Clay.popup, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous).strokeBorder(Clay.ink.opacity(0.12)) }
         .shadow(color: .black.opacity(0.25), radius: 24, y: 10)

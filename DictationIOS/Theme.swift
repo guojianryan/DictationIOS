@@ -17,7 +17,7 @@ enum Clay {
     static var surfaceCard: Color { dynamic(light: 0xF5F0E0, dark: 0x1A2A2A, cool: 0xBBD2EC) }
     static var surfaceStrong: Color { dynamic(light: 0xEBE6D6, dark: 0x2A3C3C, cool: 0xA5C2E3) }
     /// The floating feedback box: a tint that stands apart from the canvas in each theme.
-    static var popup: Color { dynamic(light: 0xE9E3FA, dark: 0x2B2547, cool: 0xFFF0D2) }
+    static var popup: Color { dynamic(light: 0xE9E3FA, dark: 0x1F3636, cool: 0xFFF0D2) }
     static var hairline: Color { dynamic(light: 0xE5E0D2, dark: 0x2E4040, cool: 0x94B4D8) }
     static var ink: Color { dynamic(light: 0x0A0A0A, dark: 0xFFFAF0, cool: 0x0A1F3D) }
     static var body: Color { dynamic(light: 0x3A3A3A, dark: 0xD9D4C7, cool: 0x24405F) }
