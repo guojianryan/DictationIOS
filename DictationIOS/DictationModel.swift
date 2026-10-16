@@ -1893,7 +1893,8 @@ final class DictationModel: ObservableObject {
     // MARK: - Recent Practices
 
     private static let recentPracticesBaseKey = "recentPractices"
-    nonisolated static let recentPracticeLimit = 10
+    /// One practice to continue plus ten more listed under it on Home.
+    nonisolated static let recentPracticeLimit = 11
 
     /// The list is stored per storage folder: its saved files (and so its practices) live there.
     private static func recentPracticesKey(for folder: URL?) -> String {

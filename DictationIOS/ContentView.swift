@@ -57,16 +57,20 @@ struct ContentView: View {
     @State private var isNamingText = false
     @State private var showsOriginalText = true
     @State private var showsTranslation = true
-    @State private var showsSettings = !UserDefaults.standard.bool(forKey: "hasShownInitialSettings")
+    @State private var showsSettings = false
+    /// The welcome and setup screens: on the first launch, and again from the logo or help button.
+    @State private var onboarding: OnboardingFlow.Presentation? =
+        UserDefaults.standard.bool(forKey: OnboardingFlow.completedKey) ? nil : .firstLaunch
+    @State private var opensWelcomeAfterSettings = false
+    /// The current step of the Home tour that follows onboarding, or nil when it is not showing.
+    @State private var homeTourIndex: Int?
     @State private var showsGradePopup = false
-    @State private var showsHowItWorks = false
     /// On iPad and Mac the dictation and speaking results show in a pop-up box in the middle of
     /// the window instead of growing the cards.
     @State private var activeResults: ResultsKind?
     @State private var resultsContentHeight: CGFloat = 0
     @State private var containerHeight: CGFloat = 0
     @State private var choicesHaveAppeared = false
-    @State private var recentRowHeight: CGFloat = 86
     /// Width of the window or split-view pane, which drives the adaptive layout.
     @State private var containerWidth: CGFloat = 0
     /// Height of the answer box and its feedback, so their scroll view is no taller than needed.
@@ -136,6 +140,18 @@ struct ContentView: View {
                 resultsPopup(kind)
             }
         }
+        .overlayPreferenceValue(HomeTourAnchorKey.self) { anchors in
+            if let homeTourIndex, homeTourIndex < homeTourSteps.count {
+                HomeTourOverlay(
+                    steps: homeTourSteps,
+                    index: homeTourIndex,
+                    anchors: anchors,
+                    localize: { tr($0) },
+                    onNext: advanceHomeTour,
+                    onSkip: endHomeTour
+                )
+            }
+        }
         .onChange(of: model.currentSentenceIndex) { _, _ in activeResults = nil }
         .foregroundStyle(Clay.ink)
         .tint(Clay.ink)
@@ -150,19 +166,28 @@ struct ContentView: View {
             await model.translate(using: session)
         }
         .sheet(isPresented: $showsSettings, onDismiss: {
-            UserDefaults.standard.set(true, forKey: "hasShownInitialSettings")
+            guard opensWelcomeAfterSettings else { return }
+            opensWelcomeAfterSettings = false
+            onboarding = .replay
         }) {
-            SettingsSheet(model: model, localization: localization)
-                .presentationSizing(.form)
+            SettingsView(model: model, localization: localization, mode: .settings(onReplayWelcome: {
+                opensWelcomeAfterSettings = true
+                showsSettings = false
+            }))
+            .presentationSizing(.form)
+        }
+        .fullScreenCover(item: $onboarding, onDismiss: {
+            if !UserDefaults.standard.bool(forKey: HomeTourStep.seenKey) { startHomeTour() }
+        }) { presentation in
+            OnboardingFlow(model: model, localization: localization, isReplay: presentation == .replay) {
+                UserDefaults.standard.set(true, forKey: OnboardingFlow.completedKey)
+                onboarding = nil
+            }
         }
         .sheet(isPresented: $showsWeeklyStats) {
             weeklyStatsSheet
                 .presentationSizing(.fitted)
                 .presentationDetents(weeklyStatsHeight > 0 ? [.height(weeklyStatsHeight), .large] : [.large])
-        }
-        .sheet(isPresented: $showsHowItWorks) {
-            howItWorksSheet
-                .presentationSizing(.form)
         }
         .alert(tr("Saved practice found"), isPresented: $model.isSavedSessionPromptPresented) {
             Button(tr("Resume")) { model.useSavedSession() }
@@ -251,66 +276,77 @@ struct ContentView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "waveform")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.white)
-                .symbolEffect(.variableColor.iterative, isActive: model.isPlaying)
-                .frame(width: 40, height: 40)
-                .background(Clay.pink, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text(verbatim: "Echo Quill")
-                    .font(.clayTitle)
-                    .tracking(-0.4)
-                Text(tr("Listen \u{2022} learn \u{2022} level up"))
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Clay.muted)
-            }
-
-            Spacer()
-
-            if !model.sentences.isEmpty {
-                Button {
-                    returnToSetup()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
+        HStack(spacing: 8) {
+            Button {
+                onboarding = .replay
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(ClayAccent.pink.on)
+                        .symbolEffect(.variableColor.iterative, isActive: model.isPlaying)
+                        .frame(width: 40, height: 40)
+                        .background(Clay.pink, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
+                    Text(verbatim: "Echo Quill")
+                        .font(.title3.weight(.bold))
+                        .tracking(-0.4)
+                        .foregroundStyle(Clay.ink)
                 }
-                .buttonStyle(.clayIcon)
-                .accessibilityLabel(tr("Start over"))
             }
+            .buttonStyle(.clayPressable)
+            .accessibilityLabel(tr("Welcome to Echo Quill"))
 
-            // iPad and Mac show the week on the start screen instead.
-            if !isMediumWidth {
-                Button {
+            Spacer(minLength: 0)
+
+            HStack(spacing: 2) {
+                if !model.sentences.isEmpty {
+                    headerButton(tr("Start over"), systemImage: "arrow.counterclockwise") {
+                        returnToSetup()
+                    }
+                }
+                headerButton(tr("Progress"), systemImage: "chart.bar") {
                     showsWeeklyStats = true
-                } label: {
-                    Image(systemName: "chart.bar.fill")
                 }
-                .buttonStyle(.clayIcon)
-                .accessibilityLabel(tr("This week"))
+                if isOnHome {
+                    headerButton(tr("Tips"), systemImage: "questionmark.circle") {
+                        startHomeTour()
+                    }
+                }
+                headerButton(tr("Settings"), systemImage: "gearshape") {
+                    showsSettings = true
+                }
+                .keyboardShortcut(",", modifiers: .command)
             }
-
-            Button {
-                showsHowItWorks = true
-            } label: {
-                Image(systemName: "questionmark.circle")
-            }
-            .buttonStyle(.clayIcon)
-            .accessibilityLabel(tr("How it works"))
-
-            Button {
-                showsSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.clayIcon)
-            .keyboardShortcut(",", modifiers: .command)
-            .accessibilityLabel(tr("Settings"))
+            .homeTourTarget(.shortcuts)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .clayColumn(contentMaxWidth)
+    }
+
+    /// An icon over a short label, so every header action says what it does.
+    private func headerButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 18, weight: .medium))
+                    .frame(height: 22)
+                Text(title)
+                    .font(.caption2.weight(.medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Clay.body)
+            .padding(4)
+            .frame(minWidth: 52, minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.clayPressable)
+    }
+
+    /// The Home screen: no practice open and no input flow chosen.
+    private var isOnHome: Bool {
+        model.sentences.isEmpty && setupChoice == nil && !model.isTranscribing
+            && !model.isReviewing && !model.isEditingSourceText
     }
 
     // MARK: - Layout
@@ -333,22 +369,57 @@ struct ContentView: View {
     // MARK: - Setup
 
     private var setupView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                if setupChoice == nil {
-                    choiceScreen
-                } else {
-                    detailScreen
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if setupChoice == nil {
+                        choiceScreen
+                    } else {
+                        detailScreen
+                    }
+                    errorBanner
                 }
-                errorBanner
+                .padding(16)
+                .clayColumn(contentMaxWidth)
             }
-            .padding(16)
-            .clayColumn(contentMaxWidth)
+            // iPad and Mac size the page to fit, so it neither bounces nor shows a scroll bar.
+            .scrollBounceBehavior(isMediumWidth ? .basedOnSize : .automatic)
+            .scrollIndicators(isMediumWidth ? .hidden : .automatic)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { setupViewportHeight = $0 }
+            .onChange(of: homeTourIndex) { _, index in
+                guard let index, index < homeTourSteps.count else { return }
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    scrollProxy.scrollTo(homeTourSteps[index], anchor: .center)
+                }
+            }
         }
-        // iPad and Mac size the page to fit, so it neither bounces nor shows a scroll bar.
-        .scrollBounceBehavior(isMediumWidth ? .basedOnSize : .automatic)
-        .scrollIndicators(isMediumWidth ? .hidden : .automatic)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { setupViewportHeight = $0 }
+    }
+
+    // MARK: - Home Tour
+
+    /// The tour skips "Your other practices" until there is something in it.
+    private var homeTourSteps: [HomeTourStep] {
+        HomeTourStep.allCases.filter { $0 != .others || !otherPractices.isEmpty }
+    }
+
+    /// Plays the Home tips, the first time Home appears and again from the Tips button.
+    private func startHomeTour() {
+        guard isOnHome else { return }
+        withAnimation(.easeOut(duration: 0.35)) { homeTourIndex = 0 }
+    }
+
+    private func advanceHomeTour() {
+        guard let homeTourIndex else { return }
+        if homeTourIndex + 1 < homeTourSteps.count {
+            withAnimation(.easeOut(duration: 0.35)) { self.homeTourIndex = homeTourIndex + 1 }
+        } else {
+            endHomeTour()
+        }
+    }
+
+    private func endHomeTour() {
+        UserDefaults.standard.set(true, forKey: HomeTourStep.seenKey)
+        withAnimation(.easeOut(duration: 0.3)) { homeTourIndex = nil }
     }
 
     /// The wide start screen's columns reach the bottom of the window, less the page padding
@@ -361,87 +432,63 @@ struct ContentView: View {
         Group {
             if isWideWidth {
                 HStack(alignment: .top, spacing: 40) {
-                    choiceHero(fillsHeight: true)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .frame(height: wideColumnHeight, alignment: .top)
                     VStack(alignment: .leading, spacing: 24) {
-                        choiceButtons
-                        recentPracticesSection(fillsHeight: true)
+                        soundWaveBanner
+                        statsCard(fillsHeight: true)
                     }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(height: wideColumnHeight, alignment: .top)
+                    // The column scrolls on its own, so a short window or a long practice list
+                    // never squeezes its sections or pushes the heading out of view.
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) {
+                            makeDictationSection
+                            continueSection
+                            otherPracticesSection
+                            privacyCaption
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.trailing, 4)
+                    }
+                    .scrollIndicators(.automatic)
+                    .scrollBounceBehavior(.basedOnSize)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .frame(height: wideColumnHeight, alignment: .top)
                 }
                 .padding(.top, 24)
             } else {
                 VStack(alignment: .leading, spacing: 24) {
-                    choiceHero(fillsHeight: false)
-                    choiceButtons
-                    if !model.recentPractices.isEmpty {
-                        recentPracticesSection(fillsHeight: false)
-                    }
+                    soundWaveBanner
+                    makeDictationSection
+                    continueSection
+                    otherPracticesSection
+                    privacyCaption
                 }
+                .padding(.top, 4)
             }
         }
-        .onAppear { choicesHaveAppeared = true }
-    }
-
-    private func choiceHero(fillsHeight: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            EqualizerBars(height: 72)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 20)
-                .frame(maxWidth: .infinity)
-                .background(Clay.surfaceSoft, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
-
-            Text(tr("What do you want to practice?"))
-                .font(.clayDisplay)
-                .tracking(-0.8)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(tr("Start from text or from audio. Speech, transcription, and translations stay on your device."))
-                .font(.body)
-                .lineSpacing(3)
-                .foregroundStyle(Clay.body)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if isMediumWidth {
-                statsCard(fillsHeight: fillsHeight)
-                    .padding(.top, 8)
+        .onAppear {
+            choicesHaveAppeared = true
+            if onboarding == nil, !UserDefaults.standard.bool(forKey: HomeTourStep.seenKey) {
+                startHomeTour()
             }
         }
     }
 
-    // MARK: - How It Works
-
-    private struct HowItWorksStep {
-        let systemImage: String
-        let accent: ClayAccent
-        let title: String
-        let detail: String
+    /// The bouncing sound wave in the brand colors at the top of Home.
+    private var soundWaveBanner: some View {
+        EqualizerBars(height: 72)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
+            .frame(maxWidth: .infinity)
+            .background(Clay.surfaceSoft, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
     }
 
-    private var howItWorksSteps: [HowItWorksStep] {
-        [
-            HowItWorksStep(
-                systemImage: "square.and.pencil", accent: .pink,
-                title: tr("Choose your material"),
-                detail: tr("Type or upload text, upload or record audio, or scan a photo of printed text.")
-            ),
-            HowItWorksStep(
-                systemImage: "ear", accent: .lavender,
-                title: tr("Listen"),
-                detail: tr("Play the speech one sentence at a time. Tap any sentence to jump to it, and slow the speed down when you need to.")
-            ),
-            HowItWorksStep(
-                systemImage: "pencil.and.outline", accent: .ochre,
-                title: tr("Dictate"),
-                detail: tr("Switch to Dictate, listen, and write the sentence from memory. Press Check to see your score and exactly which words to review.")
-            ),
-            HowItWorksStep(
-                systemImage: "waveform.and.mic", accent: .mint,
-                title: tr("Say it out loud"),
-                detail: tr("After a perfect sentence, record yourself reading it and get a pronunciation score. Try as many times as you like.")
-            )
-        ]
+    private var privacyCaption: some View {
+        Label(tr("Everything is processed on your device"), systemImage: "lock")
+            .font(.footnote)
+            .foregroundStyle(Clay.muted)
+            .frame(maxWidth: .infinity)
     }
 
     // MARK: - Weekly Stats
@@ -607,198 +654,183 @@ struct ContentView: View {
         .tint(Clay.ink)
     }
 
-    private var howItWorksContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(howItWorksSteps.enumerated()), id: \.offset) { index, step in
-                    howItWorksRow(index + 1, step, isLast: index == howItWorksSteps.count - 1)
-                }
-            }
-            Label(tr("Speech, transcription, and translations all stay on your device."), systemImage: "lock.fill")
-                .font(.caption)
-                .foregroundStyle(Clay.muted)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(20)
-    }
-
-    /// The instructions in a pop-up window, available from the header on every device.
-    private var howItWorksSheet: some View {
-        NavigationStack {
-            ScrollView {
-                howItWorksContent
-            }
-            .background(Clay.canvas)
-            .navigationTitle(tr("How it works"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(tr("Done")) { showsHowItWorks = false }
-                }
-            }
-        }
-        .foregroundStyle(Clay.ink)
-        .tint(Clay.ink)
-    }
-
-    private func howItWorksRow(_ number: Int, _ step: HowItWorksStep, isLast: Bool) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            VStack(spacing: 0) {
-                Image(systemName: step.systemImage)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(step.accent.on)
-                    .frame(width: 36, height: 36)
-                    .background(step.accent.fill, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
-                    .overlay(alignment: .topTrailing) {
-                        Text("\(number)")
-                            .font(.system(size: 10, weight: .heavy, design: .rounded))
-                            .foregroundStyle(Clay.onInk)
-                            .frame(width: 16, height: 16)
-                            .background(Clay.ink, in: Circle())
-                            .offset(x: 5, y: -5)
-                    }
-                if !isLast {
-                    Capsule()
-                        .fill(Clay.hairline)
-                        .frame(width: 2)
-                        .frame(maxHeight: .infinity)
-                        .padding(.vertical, 4)
-                }
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(step.title)
-                    .font(.clayTitle)
-                Text(step.detail)
+    private var makeDictationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(tr("Make a dictation from your own material"))
+                    .font(.title3.weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(tr("We split it into sentences you can practice one by one."))
                     .font(.subheadline)
-                    .lineSpacing(2)
-                    .foregroundStyle(Clay.body)
+                    .foregroundStyle(Clay.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.bottom, isLast ? 0 : 14)
+            .accessibilityElement(children: .combine)
+
+            // Short labels only: the Tips tour explains what each one does.
+            HStack(alignment: .top, spacing: 10) {
+                choiceButton(title: tr("From text"), systemImage: "text.alignleft", accent: .pink, order: 0) {
+                    setupChoice = .text
+                }
+                .homeTourTarget(.text)
+                .id(HomeTourStep.text)
+
+                choiceButton(title: tr("From audio"), systemImage: "waveform", accent: .lavender, order: 1) {
+                    setupChoice = .audio
+                }
+                .homeTourTarget(.audio)
+                .id(HomeTourStep.audio)
+
+                choiceButton(title: tr("From a photo"), systemImage: "camera", accent: .peach, order: 2) {
+                    setupChoice = .photo
+                }
+                .homeTourTarget(.photo)
+                .id(HomeTourStep.photo)
+            }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private var choiceButtons: some View {
-        VStack(spacing: 12) {
-            choiceButton(
-                title: tr("Text"),
-                subtitle: tr("Type words or upload a text file"),
-                systemImage: "text.alignleft",
-                accent: .pink,
-                order: 0
-            ) { setupChoice = .text }
+    // MARK: - Practices
 
-            choiceButton(
-                title: tr("Audio"),
-                subtitle: tr("Upload a file or record your own"),
-                systemImage: "waveform",
-                accent: .lavender,
-                order: 1
-            ) { setupChoice = .audio }
+    /// The most recent practice, offered on its own card so it is one tap to continue.
+    private var continuePractice: RecentPractice? { model.recentPractices.first }
 
-            choiceButton(
-                title: tr("Photo"),
-                subtitle: tr("Take or upload a photo, then edit the recognized text"),
-                systemImage: "text.viewfinder",
-                accent: .peach,
-                order: 2
-            ) { setupChoice = .photo }
-        }
-    }
+    /// Everything else, newest first.
+    private var otherPractices: [RecentPractice] { Array(model.recentPractices.dropFirst()) }
 
-    // MARK: - Recent Practices
-
-    private static let recentAccents: [ClayAccent] = [.ochre, .mint, .lavender, .peach, .pink]
-
-    /// With `fillsHeight`, the section stretches to the space it is given: the rows scroll
-    /// inside it, and an empty list keeps the same footprint.
-    private func recentPracticesSection(fillsHeight: Bool) -> some View {
+    private var continueSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(tr("Recent practices"))
+            Text(tr("Pick up where you left off"))
                 .clayEyebrow()
-
-            if fillsHeight {
-                ZStack {
-                    if model.recentPractices.isEmpty {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 28, weight: .regular))
-                            .foregroundStyle(Clay.muted.opacity(0.5))
-                    } else {
-                        ScrollView {
-                            recentPracticeRows
-                                .padding(.trailing, 12)
-                        }
-                        .scrollIndicators(.visible)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    Clay.surfaceSoft.opacity(model.recentPractices.isEmpty ? 1 : 0),
-                    in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous)
-                )
-            } else if model.recentPractices.count > Self.visibleRecentRows {
-                // Taller lists scroll inside a window that fits exactly three rows.
-                ScrollView {
-                    recentPracticeRows
-                        .padding(.trailing, 12)
-                }
-                .scrollIndicators(.visible)
-                .scrollIndicatorsFlash(onAppear: true)
-                .frame(
-                    height: recentRowHeight * CGFloat(Self.visibleRecentRows)
-                        + Self.recentRowSpacing * CGFloat(Self.visibleRecentRows - 1)
-                )
+                .accessibilityAddTraits(.isHeader)
+            if let practice = continuePractice {
+                continueCard(practice)
             } else {
-                recentPracticeRows
-            }
-        }
-    }
-
-    private static let visibleRecentRows = 3
-    private static let recentRowSpacing: CGFloat = 12
-
-    private var recentPracticeRows: some View {
-        VStack(spacing: Self.recentRowSpacing) {
-            ForEach(Array(model.recentPractices.enumerated()), id: \.element.id) { index, practice in
-                recentPracticeRow(practice, accent: Self.recentAccents[index % Self.recentAccents.count])
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.height
-                    } action: { height in
-                        recentRowHeight = height
+                HStack(spacing: 14) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 26, weight: .regular))
+                        .foregroundStyle(Clay.muted)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(tr("No practice yet"))
+                            .font(.callout.weight(.bold))
+                        Text(tr("Make your first dictation above. It will wait for you here."))
+                            .font(.subheadline)
+                            .foregroundStyle(Clay.muted)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 20)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(Clay.hairline, style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .homeTourTarget(.resume)
+        .id(HomeTourStep.resume)
+    }
+
+    private func continueCard(_ practice: RecentPractice) -> some View {
+        let accent = practiceAccent(practice.source)
+        let total = max(practice.sentenceCount, 1)
+        let done = min(practice.currentSentenceIndex, total)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                practiceTile(practice, size: 48)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(practice.title)
+                        .font(.headline.weight(.bold))
+                        .lineLimit(1)
+                    Text(continueDetail(practice))
+                        .font(.footnote)
+                        .foregroundStyle(Clay.muted)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Menu {
+                    recentPracticeActions(practice)
+                } label: {
+                    moreOptionsLabel
+                }
+                .accessibilityLabel(tr("More options"))
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Capsule()
+                    .fill(Clay.hairline)
+                    .frame(height: 6)
+                    .overlay(alignment: .leading) {
+                        GeometryReader { proxy in
+                            Capsule()
+                                .fill(accent.fill)
+                                .frame(width: proxy.size.width * CGFloat(done) / CGFloat(total))
+                        }
+                    }
+                    .accessibilityHidden(true)
+                Text(done == 0
+                    ? tr("Not started yet")
+                    : tr("%@ of %@ sentences done", "\(done)", "\(practice.sentenceCount)"))
+                    .font(.footnote)
+                    .foregroundStyle(Clay.body)
+            }
+            Button {
+                model.openRecentPractice(practice)
+            } label: {
+                Text(tr("Continue with sentence %@", "\(min(done + 1, practice.sentenceCount))"))
+                    .font(.callout.weight(.bold))
+                    .foregroundStyle(Clay.onInk)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(Clay.ink, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.clayPressable)
+        }
+        .padding(16)
+        .clayCard(Clay.surfaceCard, radius: 20, border: nil)
+        .contextMenu { recentPracticeActions(practice) }
+    }
+
+    @ViewBuilder
+    private var otherPracticesSection: some View {
+        if !otherPractices.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(tr("Your other practices"))
+                    .clayEyebrow()
+                    .accessibilityAddTraits(.isHeader)
+                otherPracticeRows
+            }
+            .homeTourTarget(.others)
+            .id(HomeTourStep.others)
+        }
+    }
+
+    private var otherPracticeRows: some View {
+        VStack(spacing: 10) {
+            ForEach(otherPractices) { practice in
+                otherPracticeRow(practice)
             }
         }
     }
 
-    private func recentPracticeRow(_ practice: RecentPractice, accent: ClayAccent) -> some View {
-        let sentenceNumber = min(practice.currentSentenceIndex + 1, max(practice.sentenceCount, 1))
-        return HStack(spacing: 4) {
+    private func otherPracticeRow(_ practice: RecentPractice) -> some View {
+        HStack(spacing: 4) {
             Button {
                 model.openRecentPractice(practice)
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: sourceIcon(practice.source))
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(accent.on)
-                        .frame(width: 44, height: 44)
-                        .background(accent.fill, in: RoundedRectangle(cornerRadius: Clay.Radius.md, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 5) {
+                    practiceTile(practice, size: 40)
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(practice.title)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.callout.weight(.bold))
                             .foregroundStyle(Clay.ink)
                             .lineLimit(1)
-                        Text(recentPracticeDetail(practice))
-                            .font(.caption)
+                        Text(otherPracticeDetail(practice))
+                            .font(.footnote)
                             .foregroundStyle(Clay.muted)
                             .lineLimit(1)
-                        HStack(spacing: 8) {
-                            ProgressView(value: Double(sentenceNumber), total: Double(max(practice.sentenceCount, 1)))
-                                .tint(Clay.ink)
-                            Text("\(sentenceNumber)/\(practice.sentenceCount)")
-                                .font(.caption2.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(Clay.muted)
-                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -809,19 +841,41 @@ struct ContentView: View {
             Menu {
                 recentPracticeActions(practice)
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Clay.ink)
-                    .frame(width: 40, height: 44)
-                    .contentShape(Rectangle())
+                moreOptionsLabel
             }
-            .accessibilityLabel(tr("More"))
+            .accessibilityLabel(tr("More options"))
         }
-        .padding(.leading, 12)
+        .padding(.leading, 14)
         .padding(.trailing, 4)
-        .padding(.vertical, 12)
-        .clayCard(Clay.surfaceCard, border: nil)
+        .padding(.vertical, 10)
+        .clayCard(Clay.surfaceCard, radius: Clay.Radius.lg, border: nil)
         .contextMenu { recentPracticeActions(practice) }
+    }
+
+    private var moreOptionsLabel: some View {
+        Image(systemName: "ellipsis")
+            .font(.body.weight(.semibold))
+            .foregroundStyle(Clay.body)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+    }
+
+    private func practiceTile(_ practice: RecentPractice, size: CGFloat) -> some View {
+        let accent = practiceAccent(practice.source)
+        return Image(systemName: sourceIcon(practice.source))
+            .font(.system(size: size * 0.4, weight: .semibold))
+            .foregroundStyle(accent.on)
+            .frame(width: size, height: size)
+            .background(accent.fill, in: RoundedRectangle(cornerRadius: size / 4, style: .continuous))
+    }
+
+    /// Practices take the color of where they came from: amber audio, mint photos, lavender text.
+    private func practiceAccent(_ source: PracticeSource) -> ClayAccent {
+        switch source {
+        case .audioFile, .recording: .ochre
+        case .photo: .mint
+        case .typedText, .textFile: .lavender
+        }
     }
 
     @ViewBuilder
@@ -866,16 +920,34 @@ struct ContentView: View {
         }
     }
 
-    private func recentPracticeDetail(_ practice: RecentPractice) -> String {
+    private func relativeTime(_ date: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = Locale(identifier: localization.resolvedCode)
         formatter.unitsStyle = .abbreviated
         formatter.dateTimeStyle = .named
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    /// "German · from audio · 2h ago"
+    private func continueDetail(_ practice: RecentPractice) -> String {
+        let origin = switch practice.source {
+        case .audioFile, .recording: tr("from audio")
+        case .photo: tr("from a photo")
+        case .typedText, .textFile: tr("from text")
+        }
         return [
-            sourceTitle(practice.source),
             localization.languageName(for: practice.languageIdentifier),
-            formatter.localizedString(for: practice.lastPracticed, relativeTo: Date())
+            origin,
+            relativeTime(practice.lastPracticed)
         ].joined(separator: " \u{00B7} ")
+    }
+
+    /// "3 of 16 sentences · 15h ago", or "Not started · 19h ago"
+    private func otherPracticeDetail(_ practice: RecentPractice) -> String {
+        let progress = practice.currentSentenceIndex == 0
+            ? tr("Not started")
+            : tr("%@ of %@ sentences", "\(practice.currentSentenceIndex)", "\(practice.sentenceCount)")
+        return [progress, relativeTime(practice.lastPracticed)].joined(separator: " \u{00B7} ")
     }
 
     // MARK: - Setup Details
@@ -2210,37 +2282,28 @@ struct ContentView: View {
 
     private func choiceButton(
         title: String,
-        subtitle: String,
         systemImage: String,
         accent: ClayAccent,
         order: Int,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 16) {
+            VStack(spacing: 10) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 24, weight: .semibold))
-                    .frame(width: 56, height: 56)
-                    .background(accent.on.opacity(0.14), in: RoundedRectangle(cornerRadius: Clay.Radius.lg, style: .continuous))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.clayTitle)
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "arrow.right")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(accent.fill)
-                    .frame(width: 36, height: 36)
-                    .background(accent.on, in: Circle())
+                    .font(.system(size: 26, weight: .semibold))
+                    .frame(height: 30)
+                Text(title)
+                    .font(.headline.weight(.bold))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(accent.on)
-            .padding(20)
-            .background(accent.fill, in: RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: Clay.Radius.xl, style: .continuous))
+            // Dark text on every tile: white is too faint on the lighter colors.
+            .foregroundStyle(Clay.onColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 18)
+            .frame(maxWidth: .infinity, minHeight: 104, maxHeight: .infinity, alignment: .top)
+            .background(accent.fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.clayPressable)
         .opacity(choicesHaveAppeared ? 1 : 0)
@@ -2871,158 +2934,5 @@ private struct ReviewRow: View {
             status.isOverLimit ? Clay.error.opacity(0.1) : Clay.surfaceCard,
             border: status.isOverLimit ? Clay.error : nil
         )
-    }
-}
-
-// MARK: - Settings Sheet
-
-private struct SettingsSheet: View {
-    @ObservedObject var model: DictationModel
-    @ObservedObject var localization: AppLocalization
-    @ObservedObject private var storageFolder = StorageFolder.shared
-    @AppStorage(AppAppearance.storageKey) private var appearance: AppAppearance = .light
-    @Environment(\.dismiss) private var dismiss
-    @State private var showsFolderPicker = false
-    @State private var folderErrorMessage: String?
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section(localization.string("Theme")) {
-                    Group {
-                        Picker(localization.string("Theme"), selection: Binding(
-                            get: { appearance },
-                            set: { newValue in
-                                appearance = newValue
-                                newValue.apply()
-                            }
-                        )) {
-                            ForEach(AppAppearance.allCases) { option in
-                                Text(localization.string(LocalizableText(key: option.title))).tag(option)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                    }
-                    .listRowBackground(Clay.surfaceCard)
-                }
-                Section {
-                    Group {
-                        Picker(localization.string("App language"), selection: $localization.appLanguage) {
-                            Text(localization.string("System")).tag("system")
-                            ForEach(AppLocalization.choices, id: \.id) { choice in
-                                Text(choice.title).tag(choice.id)
-                            }
-                        }
-                    }
-                    .listRowBackground(Clay.surfaceCard)
-                }
-                Section {
-                    Group {
-                        Picker(localization.string("Default spoken language"), selection: $model.defaultSpeechLocale) {
-                            ForEach(model.speechLanguages) { language in
-                                Text(localization.languageName(for: language.identifier)).tag(language.identifier)
-                            }
-                        }
-                        Picker(localization.string("Default translation language"), selection: $model.defaultTranslationLanguage) {
-                            ForEach(TranslationLanguage.supported) { language in
-                                Text(localization.languageName(for: language.code)).tag(language.code)
-                            }
-                        }
-                    }
-                    .listRowBackground(Clay.surfaceCard)
-                } footer: {
-                    Text(localization.string("Defaults are used when you start. A language you pick while adding text or audio applies only to that session."))
-                }
-                Section {
-                    Group {
-                        Picker(localization.string("Voice"), selection: voiceSelection) {
-                            Text(localization.string("Automatic")).tag(String?.none)
-                            ForEach(availableVoices, id: \.identifier) { voice in
-                                Text(voiceLabel(voice)).tag(String?.some(voice.identifier))
-                            }
-                        }
-                    }
-                    .listRowBackground(Clay.surfaceCard)
-                } footer: {
-                    Text(localization.string(.format(
-                        "The voice used to read %@. Change the spoken language above to choose a voice for a different language.",
-                        localization.languageName(for: model.defaultSpeechLocale)
-                    )))
-                }
-                Section {
-                    Group {
-                        LabeledContent(localization.string("Folder")) {
-                            Text(storageFolder.displayName ?? localization.string("Documents (default)"))
-                        }
-                        Button(localization.string("Choose Folder")) {
-                            showsFolderPicker = true
-                        }
-                        if storageFolder.chosenURL != nil {
-                            Button(localization.string("Use Documents Folder")) {
-                                storageFolder.useDocumentsFolder()
-                                folderErrorMessage = nil
-                            }
-                        }
-                    }
-                    .listRowBackground(Clay.surfaceCard)
-                } header: {
-                    Text(localization.string("Saved files"))
-                } footer: {
-                    if let folderErrorMessage {
-                        Text(folderErrorMessage).foregroundStyle(.red)
-                    } else {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(localization.string("Speech, recordings, and practice progress are saved in this folder. Choose a folder in iCloud Drive to use the same files in the Mac app."))
-                            Text(localization.string("If you choose a folder in iCloud Drive, you can continue your practice on your other Apple devices."))
-                        }
-                    }
-                }
-            }
-            .scrollContentBackground(.hidden)
-            .background(Clay.canvas)
-            .tint(Clay.ink)
-            .fileImporter(
-                isPresented: $showsFolderPicker,
-                allowedContentTypes: [.folder],
-                allowsMultipleSelection: false
-            ) { result in
-                do {
-                    guard let url = try result.get().first else { return }
-                    try storageFolder.choose(url)
-                    folderErrorMessage = nil
-                } catch {
-                    folderErrorMessage = localization.string("Could not use this folder.")
-                }
-            }
-            .onChange(of: appearance) { _, newValue in newValue.apply() }
-            .navigationTitle(localization.string("Settings"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(localization.string("Done")) { dismiss() }
-                }
-            }
-        }
-    }
-
-    private var availableVoices: [AVSpeechSynthesisVoice] {
-        DictationModel.availableVoices(forLanguage: model.defaultSpeechLocale)
-    }
-
-    private var voiceSelection: Binding<String?> {
-        let language = DictationModel.languageCode(for: model.defaultSpeechLocale)
-        return Binding(
-            get: { model.preferredVoiceIdentifier(forLanguage: language) },
-            set: { model.setPreferredVoice($0, forLanguage: language) }
-        )
-    }
-
-    private func voiceLabel(_ voice: AVSpeechSynthesisVoice) -> String {
-        switch voice.quality {
-        case .enhanced: "\(voice.name) (\(localization.string("Enhanced")))"
-        case .premium: "\(voice.name) (\(localization.string("Premium")))"
-        default: voice.name
-        }
     }
 }
