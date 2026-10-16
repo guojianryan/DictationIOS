@@ -74,7 +74,9 @@ struct ContentView: View {
     /// Full height of the original and translation sentence lists, to size them to three sentences.
     @State private var originalListHeight: CGFloat = 0
     @State private var translationListHeight: CGFloat = 0
-    @State private var howItWorksStepsHeight: CGFloat = 0
+    @State private var showsWeeklyStats = false
+    @State private var weeklyStatsHeight: CGFloat = 0
+    @ObservedObject private var stats = StatsStore.shared
     /// Height of the choices column in the wide start screen, which the intro column matches.
     @State private var setupViewportHeight: CGFloat = 0
     /// Height of the practice page's scroll area, and of everything on it except the sentence
@@ -152,6 +154,11 @@ struct ContentView: View {
         }) {
             SettingsSheet(model: model, localization: localization)
                 .presentationSizing(.form)
+        }
+        .sheet(isPresented: $showsWeeklyStats) {
+            weeklyStatsSheet
+                .presentationSizing(.fitted)
+                .presentationDetents(weeklyStatsHeight > 0 ? [.height(weeklyStatsHeight), .large] : [.large])
         }
         .sheet(isPresented: $showsHowItWorks) {
             howItWorksSheet
@@ -273,16 +280,24 @@ struct ContentView: View {
                 .accessibilityLabel(tr("Start over"))
             }
 
-            // iPad and Mac show the instructions on the start screen instead.
+            // iPad and Mac show the week on the start screen instead.
             if !isMediumWidth {
                 Button {
-                    showsHowItWorks = true
+                    showsWeeklyStats = true
                 } label: {
-                    Image(systemName: "questionmark.circle")
+                    Image(systemName: "chart.bar.fill")
                 }
                 .buttonStyle(.clayIcon)
-                .accessibilityLabel(tr("How it works"))
+                .accessibilityLabel(tr("This week"))
             }
+
+            Button {
+                showsHowItWorks = true
+            } label: {
+                Image(systemName: "questionmark.circle")
+            }
+            .buttonStyle(.clayIcon)
+            .accessibilityLabel(tr("How it works"))
 
             Button {
                 showsSettings = true
@@ -389,7 +404,7 @@ struct ContentView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if isMediumWidth {
-                howItWorks(fillsHeight: fillsHeight)
+                statsCard(fillsHeight: fillsHeight)
                     .padding(.top, 8)
             }
         }
@@ -429,67 +444,189 @@ struct ContentView: View {
         ]
     }
 
-    /// Mac windows have room to show every step; iPad keeps the shorter scrolling card.
-    private static let howItWorksMaxHeight: CGFloat = {
-        #if targetEnvironment(macCatalyst)
-        350
-        #else
-        170
-        #endif
+    // MARK: - Weekly Stats
+
+    private static let weekRangeFormatter: DateIntervalFormatter = {
+        let formatter = DateIntervalFormatter()
+        formatter.dateTemplate = "MMMd"
+        return formatter
     }()
 
-    /// The steps in a short scrolling card, so the intro stays compact on iPad and Mac.
-    /// With `fillsHeight`, the card stretches to the height it is given and the steps scroll
-    /// inside it; otherwise the steps get a capped height of their own.
-    private func howItWorks(fillsHeight: Bool) -> some View {
-        let steps = howItWorksSteps
-        return VStack(alignment: .leading, spacing: 6) {
-            Text(tr("How it works"))
-                .clayEyebrow()
+    /// This week's practice at a glance, shown beside the start choices on iPad and Mac.
+    private func statsCard(fillsHeight: Bool) -> some View {
+        let week = stats.week()
+        let dayLetters = Calendar.current.veryShortWeekdaySymbols
+        let mondayFirst = Array(dayLetters[1...]) + [dayLetters[0]]
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(tr("This week")).clayEyebrow()
+                Spacer()
+                Text(Self.weekRangeFormatter.string(from: week.start, to: week.end))
+                    .font(.subheadline)
+                    .foregroundStyle(Clay.muted)
+            }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-                        howItWorksRow(index + 1, step, isLast: index == steps.count - 1)
+            VStack(spacing: 12) {
+                HStack(spacing: 12) {
+                    statTile(tr("Streak"), systemImage: "flame", accent: Clay.peach) {
+                        statValue("\(week.streak)", unit: tr("days"))
+                        HStack(spacing: 4) {
+                            ForEach(0..<7, id: \.self) { index in
+                                VStack(spacing: 6) {
+                                    Capsule()
+                                        .fill(week.activeDays[index] ? Clay.peach : Clay.surfaceStrong)
+                                        .frame(height: 8)
+                                    Text(mondayFirst[index])
+                                        .font(.caption2)
+                                        .foregroundStyle(index == week.todayIndex ? Clay.ink : Clay.muted)
+                                        .fontWeight(index == week.todayIndex ? .bold : .regular)
+                                }
+                            }
+                        }
+                    }
+                    statTile(tr("Sentences dictated"), systemImage: "pencil", accent: Clay.ochre) {
+                        statValue("\(week.sentenceCount)", unit: nil)
+                        let peak = max(week.dailyCounts.max() ?? 0, 1)
+                        HStack(alignment: .bottom, spacing: 4) {
+                            ForEach(0..<7, id: \.self) { index in
+                                let count = week.dailyCounts[index]
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .fill(count > 0 ? Clay.ochre : Clay.surfaceStrong)
+                                    .frame(height: count > 0 ? max(8, 40 * CGFloat(count) / CGFloat(peak)) : 4)
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .frame(height: 40, alignment: .bottom)
                     }
                 }
-                .padding(.top, 10)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { howItWorksStepsHeight = $0 }
+                HStack(spacing: 12) {
+                    statTile(tr("Dictation accuracy"), systemImage: "scope", accent: Clay.mint) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            statValue(week.accuracy.map { "\($0)" } ?? "–", unit: "%")
+                            if let change = week.accuracyChange, change != 0 {
+                                Text(tr("%@ vs last week", (change > 0 ? "+" : "\u{2212}") + "\(abs(change))"))
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Clay.mint)
+                            }
+                        }
+                        statBar(Double(week.accuracy ?? 0) / 100, accent: Clay.mint)
+                    }
+                    statTile(tr("Pronunciation"), systemImage: "mic", accent: Clay.pink) {
+                        statValue(week.pronunciation.map { "\($0)" } ?? "–", unit: tr("avg score"))
+                        statBar(Double(week.pronunciation ?? 0) / 100, accent: Clay.pink)
+                    }
+                }
             }
-            .scrollIndicators(.visible)
-            .modifier(HowItWorksScrollHeight(
-                fillsHeight: fillsHeight,
-                height: howItWorksStepsHeight > 0 ? min(howItWorksStepsHeight, Self.howItWorksMaxHeight) : Self.howItWorksMaxHeight
-            ))
+            .frame(maxHeight: fillsHeight ? .infinity : nil)
 
+            if !week.wordsToReview.isEmpty {
+                Text(tr("Words to review"))
+                    .font(.clayTitle)
+                    .padding(.top, 4)
+                HStack(spacing: 8) {
+                    ForEach(week.wordsToReview.prefix(4), id: \.self) { word in
+                        Text(word)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Clay.surfaceStrong, in: Capsule())
+                    }
+                    if week.wordsToReview.count > 4 {
+                        Text(verbatim: "+\(week.wordsToReview.count - 4)")
+                            .font(.subheadline)
+                            .foregroundStyle(Clay.muted)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Clay.surfaceStrong, in: Capsule())
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
+        .clayCard(Clay.surfaceSoft, radius: Clay.Radius.xl, border: nil)
+    }
+
+    private func statTile<Content: View>(
+        _ title: String, systemImage: String, accent: Color,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(accent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            content()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Clay.surfaceCard, in: RoundedRectangle(cornerRadius: Clay.Radius.lg, style: .continuous))
+    }
+
+    private func statValue(_ value: String, unit: String?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(value).font(.system(size: 34, weight: .bold, design: .rounded))
+            if let unit {
+                Text(unit).font(.subheadline).foregroundStyle(Clay.muted)
+            }
+        }
+    }
+
+    private func statBar(_ fraction: Double, accent: Color) -> some View {
+        Capsule()
+            .fill(Clay.surfaceStrong)
+            .frame(height: 8)
+            .overlay(alignment: .leading) {
+                GeometryReader { proxy in
+                    Capsule().fill(accent).frame(width: proxy.size.width * min(max(fraction, 0), 1))
+                }
+            }
+    }
+
+    /// The week's stats in a pop-up window, opened from the header on iPhone.
+    private var weeklyStatsSheet: some View {
+        NavigationStack {
+            ScrollView {
+                statsCard(fillsHeight: false)
+                    .padding(20)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                        weeklyStatsHeight = $0 + 120
+                    }
+            }
+            .background(Clay.canvas)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(tr("Done")) { showsWeeklyStats = false }
+                }
+            }
+        }
+        .foregroundStyle(Clay.ink)
+        .tint(Clay.ink)
+    }
+
+    private var howItWorksContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(howItWorksSteps.enumerated()), id: \.offset) { index, step in
+                    howItWorksRow(index + 1, step, isLast: index == howItWorksSteps.count - 1)
+                }
+            }
             Label(tr("Speech, transcription, and translations all stay on your device."), systemImage: "lock.fill")
                 .font(.caption)
                 .foregroundStyle(Clay.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 20)
-        .padding(.bottom, 16)
-        .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
-        .clayCard(Clay.surfaceSoft, radius: Clay.Radius.xl, border: nil)
+        .padding(20)
     }
 
     /// The instructions in a pop-up window, available from the header on every device.
     private var howItWorksSheet: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(howItWorksSteps.enumerated()), id: \.offset) { index, step in
-                            howItWorksRow(index + 1, step, isLast: index == howItWorksSteps.count - 1)
-                        }
-                    }
-                    Label(tr("Speech, transcription, and translations all stay on your device."), systemImage: "lock.fill")
-                        .font(.caption)
-                        .foregroundStyle(Clay.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(20)
+                howItWorksContent
             }
             .background(Clay.canvas)
             .navigationTitle(tr("How it works"))
@@ -502,19 +639,6 @@ struct ContentView: View {
         }
         .foregroundStyle(Clay.ink)
         .tint(Clay.ink)
-    }
-
-    private struct HowItWorksScrollHeight: ViewModifier {
-        let fillsHeight: Bool
-        let height: CGFloat
-
-        func body(content: Content) -> some View {
-            if fillsHeight {
-                content.frame(minHeight: 100, maxHeight: .infinity)
-            } else {
-                content.frame(height: height)
-            }
-        }
     }
 
     private func howItWorksRow(_ number: Int, _ step: HowItWorksStep, isLast: Bool) -> some View {

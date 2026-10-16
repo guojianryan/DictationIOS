@@ -1655,6 +1655,13 @@ final class DictationModel: ObservableObject {
             }
             hapticFeedback.notificationOccurred(.warning)
         }
+        let missedWords = alignment.typedMatches.enumerated()
+            .compactMap { index, isCorrect in isCorrect ? nil : alignment.typedExpectedIndices[index].map { expectedWords[$0] } }
+            + missingPracticeWords
+        StatsStore.shared.recordDictation(
+            score: practiceGradeScore ?? 0,
+            missedWords: missedWords.map { $0.trimmingCharacters(in: .punctuationCharacters) }.filter { !$0.isEmpty }
+        )
         gradeCheckCount += 1
         schedulePracticeSessionSave()
     }

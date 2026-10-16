@@ -181,6 +181,7 @@ final class SpeakingPracticeModel: ObservableObject {
         let rating = max(0, Int((1 - Double(mistakes) / Double(expected.count)) * 100))
         score = recognizedText.isEmpty ? 0 : rating
         attemptCount += 1
+        StatsStore.shared.recordPronunciation(score: score ?? 0)
         hapticFeedback.notificationOccurred(rating == 100 ? .success : .warning)
     }
 
